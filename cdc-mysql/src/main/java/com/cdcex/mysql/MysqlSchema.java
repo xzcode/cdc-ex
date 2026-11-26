@@ -7,7 +7,7 @@ public record MysqlSchema(List<Column> columns,List<String> keys,String uuid) {
     public record Column(String name,String type,boolean nullable,String collation){}
     public record Preflight(MysqlSchema source,MysqlSchema target){}
     static Connection connect(MysqlTaskConfig.Endpoint e) throws SQLException {
-        try { Class.forName("com.mysql.cj.jdbc.Driver"); } catch(ClassNotFoundException e) { throw new SQLException("MySQL JDBC driver unavailable", e); }
+        try { Class.forName("com.mysql.cj.jdbc.Driver"); } catch(ClassNotFoundException failure) { throw new SQLException("MySQL JDBC driver unavailable", failure); }
         Properties p=new Properties();p.setProperty("user",e.user());p.setProperty("password",e.password());
         p.setProperty("sslMode",e.sslMode());p.setProperty("connectTimeout","5000");p.setProperty("socketTimeout","15000");
         return DriverManager.getConnection(e.url(),p);
