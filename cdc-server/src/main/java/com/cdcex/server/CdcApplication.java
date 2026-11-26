@@ -27,17 +27,20 @@ public class CdcApplication {
             if(lock==null)throw new IllegalStateException("Task directory already owned by another process");
             boolean fresh=!Files.exists(dir.resolve("journal.db"));
             if(fresh&&(Files.exists(dir.resolve("offsets.dat"))||Files.exists(dir.resolve("schema-history.dat"))))throw new IllegalStateException("Orphaned connector state");
+            var schemas=MysqlSchema.preflight(cfg,fresh);
+            if("true".equalsIgnoreCase(env.get("CDC_PREFLIGHT_ONLY"))){System.out.println("Preflight passed; no source capture started");return;}
             try(var journal=new SqliteJournal(dir.resolve("journal.db"),cfg.journalBytes(),cfg.journalEvents())){
                 if(!fresh){
                     if(journal.metadata("fingerprint")==null)throw new IllegalStateException("Uninitialized journal; operator review required");
                     for(String name:new String[]{"offsets.dat","schema-history.dat"})if(!Files.isRegularFile(dir.resolve(name))||Files.size(dir.resolve(name))==0)throw new IllegalStateException("Missing connector recovery state; refusing to reset");
                     if("initial".equals(cfg.snapshotMode())&&!journal.hasStreamingEvent())throw new IllegalStateException("Initial snapshot recovery not proven; operator reconciliation required");
                 }
-                var schema=MysqlSchema.preflight(cfg,fresh);journal.initialize(EventCodec.digest(java.util.List.of(cfg.fingerprint(),schema.uuid(),schema.columns(),schema.keys())));
-                if("true".equalsIgnoreCase(env.get("CDC_PREFLIGHT_ONLY"))){System.out.println("Preflight passed; no source capture started");return;}
+                var schema=schemas.target();journal.initialize(EventCodec.digest(java.util.List.of(cfg.fingerprint(),schemas.source(),schema)));
                 var runtime=new TaskRuntime(new MysqlSource(cfg),new MysqlSink(cfg,schema),journal,128,12);
-                Thread hook=new Thread(runtime::requestStop,"cdc-stop");Runtime.getRuntime().addShutdownHook(hook);
-                try{runtime.run();}finally{try{Runtime.getRuntime().removeShutdownHook(hook);}catch(IllegalStateException ignored){}}
+                var stopped=new java.util.concurrent.CountDownLatch(1);
+                Thread hook=new Thread(()->{runtime.requestStop();try{stopped.await(45,java.util.concurrent.TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}},"cdc-stop");
+                Runtime.getRuntime().addShutdownHook(hook);
+                try{runtime.run();}finally{stopped.countDown();try{Runtime.getRuntime().removeShutdownHook(hook);}catch(IllegalStateException ignored){}}
             }
         }
     }

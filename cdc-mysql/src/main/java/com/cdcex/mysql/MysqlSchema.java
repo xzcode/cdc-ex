@@ -4,7 +4,8 @@ import java.sql.*;
 import java.util.*;
 import static com.cdcex.mysql.MysqlTaskConfig.quote;
 public record MysqlSchema(List<Column> columns,List<String> keys,String uuid) {
-    public record Column(String name,String type,boolean nullable){}
+    public record Column(String name,String type,boolean nullable,String collation){}
+    public record Preflight(MysqlSchema source,MysqlSchema target){}
     static Connection connect(MysqlTaskConfig.Endpoint e) throws SQLException {
         Properties p=new Properties();p.setProperty("user",e.user());p.setProperty("password",e.password());
         p.setProperty("sslMode",e.sslMode());p.setProperty("connectTimeout","5000");p.setProperty("socketTimeout","15000");
@@ -24,7 +25,7 @@ public record MysqlSchema(List<Column> columns,List<String> keys,String uuid) {
                 if(!t.matches("(tinyint|smallint|mediumint|int|bigint)(\\(\\d+\\))?|decimal\\(\\d+,\\d+\\)|varchar\\(\\d+\\)|char\\(\\d+\\)|(tinytext|text|mediumtext|longtext)"))
                     throw new IllegalArgumentException("Unsupported M1 column type: "+t);
                 if(r.getString("Extra").toLowerCase(Locale.ROOT).contains("generated")) throw new IllegalArgumentException("Generated columns are unsupported");
-                cols.add(new Column(n,t,"YES".equals(r.getString("Null"))));
+                cols.add(new Column(n,t,"YES".equals(r.getString("Null")),r.getString("Collation")));
             }
         }
         try(ResultSet r=c.getMetaData().getPrimaryKeys(e.database(),null,e.table())){
@@ -40,7 +41,7 @@ public record MysqlSchema(List<Column> columns,List<String> keys,String uuid) {
         }
         return new MysqlSchema(List.copyOf(cols),List.copyOf(keys),variable(c,"SELECT @@server_uuid"));
     }
-    public static MysqlSchema preflight(MysqlTaskConfig config,boolean fresh) throws SQLException {
+    public static Preflight preflight(MysqlTaskConfig config,boolean fresh) throws SQLException {
         try(Connection s=connect(config.source());Connection t=connect(config.target())){
             if(!"1".equals(variable(s,"SELECT @@log_bin"))||!"ROW".equalsIgnoreCase(variable(s,"SELECT @@binlog_format"))||!"FULL".equalsIgnoreCase(variable(s,"SELECT @@binlog_row_image")))
                 throw new IllegalArgumentException("Source requires log_bin=ON, ROW, FULL");
@@ -49,7 +50,7 @@ public record MysqlSchema(List<Column> columns,List<String> keys,String uuid) {
                 throw new IllegalArgumentException("Source and target are the same physical table");
             if(!a.columns.equals(b.columns)||!a.keys.equals(b.keys))throw new IllegalArgumentException("M1 requires identical source and target columns and primary keys");
             if(fresh&&"initial".equals(config.snapshotMode())&&!"0".equals(variable(t,"SELECT EXISTS(SELECT 1 FROM "+config.target().qualified()+" LIMIT 1)")))throw new IllegalArgumentException("Initial snapshot requires an empty target");
-            return b;
+            return new Preflight(a,b);
         }
     }
 }

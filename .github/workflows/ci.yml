@@ -17,3 +17,4 @@ jobs:
           cache: maven
       - run: mvn -B -ntp clean verify
       - run: java -jar cdc-server/target/cdc-server-0.1.0-SNAPSHOT.jar
+      - run: bash scripts/mysql-smoke.sh

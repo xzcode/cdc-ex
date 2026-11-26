@@ -4,7 +4,7 @@
 
 A lightweight, self-hosted change data capture and database synchronization platform. CDC EX owns its task orchestration, durable delivery, mappings and management UI, while reusing mature database capture libraries.
 
-**Status:** M0 design baseline; no connector is implemented or production-certified yet.
+**Status:** M1 implementation preview; single-table MySQL-to-MySQL runner, durable journal and connector SPI. Build and real database acceptance must pass before M1 completion. See [M1 runbook](docs/M1_RUNBOOK.md). No connector is production-certified yet.
 
 ## V1 database scope
 

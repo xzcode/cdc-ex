@@ -2,7 +2,8 @@ package com.cdcex.mysql;
 
 import com.cdcex.core.*;
 import io.debezium.embedded.Connect;
-import io.debezium.engine.*;
+import io.debezium.engine.DebeziumEngine;
+import io.debezium.engine.RecordChangeEvent;
 import io.debezium.engine.format.ChangeEventFormat;
 import org.apache.kafka.connect.data.*;
 import org.apache.kafka.connect.source.SourceRecord;
