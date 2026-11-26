@@ -5,16 +5,20 @@ import java.nio.file.Path;
 import java.util.*;
 public record MysqlTaskConfig(Endpoint source,Endpoint target,long replicationServerId,Path directory,
                               String snapshotMode,long journalBytes,long journalEvents) {
-    public record Endpoint(String host,int port,String user,String password,String database,String table,String sslMode) {
+    public enum Dialect { MYSQL, MARIADB }
+    public record Endpoint(String host,int port,String user,String password,String database,String table,String sslMode,Dialect dialect) {
+        public Endpoint(String host,int port,String user,String password,String database,String table,String sslMode){this(host,port,user,password,database,table,sslMode,Dialect.MYSQL);}
+        public String connectorSslMode(){return dialect==Dialect.MYSQL?sslMode.toLowerCase(Locale.ROOT):switch(sslMode){case "DISABLED"->"disable";case "REQUIRED"->"trust";case "VERIFY_CA"->"verify-ca";case "VERIFY_IDENTITY"->"verify-full";default->throw new IllegalStateException("Invalid SSL mode");};}
         public Endpoint {
+            Objects.requireNonNull(dialect);
             if(host==null || !host.matches("[A-Za-z0-9.-]+") || port<1 || port>65535) throw new IllegalArgumentException("Invalid host/port");
             if(user==null||user.isBlank()||password==null) throw new IllegalArgumentException("Missing credentials");
             identifier(database);identifier(table);
             if(!Set.of("DISABLED","REQUIRED","VERIFY_CA","VERIFY_IDENTITY").contains(sslMode)) throw new IllegalArgumentException("Invalid SSL mode");
         }
-        public String url(){return "jdbc:mysql://"+host+":"+port+"/"+database;}
+        public String url(){return "jdbc:"+dialect.name().toLowerCase(Locale.ROOT)+"://"+host+":"+port+"/"+database;}
         public String qualified(){return quote(database)+"."+quote(table);}
-        public Object identity(){return List.of(host,port,user,database,table,sslMode);}
+        public Object identity(){return dialect==Dialect.MYSQL?List.of(host,port,user,database,table,sslMode):List.of(host,port,user,database,table,sslMode,dialect.name());}
         @Override public String toString(){return "Endpoint[redacted]";}
     }
     public MysqlTaskConfig {

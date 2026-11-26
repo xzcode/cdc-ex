@@ -4,7 +4,7 @@
 
 轻量、自托管的数据库变更捕获与实时同步平台。自主开发任务管理、持久化投递、数据映射及管理界面，复用成熟的变更捕获底层库。
 
-当前状态：M1 开发预览，已编写单表 MySQL 实时同步、持久化队列及连接器接口，尚待构建和实库验收。参见 [M1 运行手册](M1_RUNBOOK.md)。
+当前状态：SQL CDC 开发预览。MySQL 8.4 单表快照、增删改和重启测试已在 23cad55 通过；M1 可靠性加强及 M2 MariaDB/双向异构连接器验收进行中（任务仍是单向）。参见 [M1 运行手册](M1_RUNBOOK.md)、[M2 MariaDB 说明](M2_MARIADB.md)。
 
 首版支持 MySQL、MariaDB、MongoDB、PostgreSQL、ClickHouse 和 Apache Kafka。前四种作为原生 CDC 源端及写入目标；ClickHouse 作为目标端优先，同时提供全量读取、受约束的增量游标或显式变更表读取，不将普通查询轮询冒充完整 CDC。
 

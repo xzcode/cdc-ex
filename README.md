@@ -4,7 +4,7 @@
 
 A lightweight, self-hosted change data capture and database synchronization platform. CDC EX owns its task orchestration, durable delivery, mappings and management UI, while reusing mature database capture libraries.
 
-**Status:** M1 implementation preview; single-table MySQL-to-MySQL runner, durable journal and connector SPI. Build and real database acceptance must pass before M1 completion. See [M1 runbook](docs/M1_RUNBOOK.md). No connector is production-certified yet.
+**Status:** SQL CDC preview; the original MySQL 8.4 single-table snapshot/DML/restart smoke test passed at 23cad55. M1 reliability hardening and M2 MariaDB/cross-dialect integration are in progress. No production certification. See [M1 runbook](docs/M1_RUNBOOK.md) and [M2 MariaDB notes](docs/M2_MARIADB.md). No connector is production-certified yet.
 
 ## V1 database and event-stream scope
 
