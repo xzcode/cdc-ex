@@ -15,6 +15,7 @@ public final class SqliteJournal implements AutoCloseable {
         if (byteLimit < 1 || eventLimit < 1) throw new IllegalArgumentException("Invalid journal limits");
         Files.createDirectories(file.toAbsolutePath().getParent());
         this.byteLimit=byteLimit; this.eventLimit=eventLimit;
+        Class.forName("org.sqlite.JDBC");
         db=DriverManager.getConnection("jdbc:sqlite:"+file.toAbsolutePath());
         try(Statement s=db.createStatement()) {
             s.execute("PRAGMA journal_mode=WAL"); s.execute("PRAGMA synchronous=FULL");

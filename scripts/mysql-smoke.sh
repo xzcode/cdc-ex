@@ -16,12 +16,12 @@ cleanup() {
 trap cleanup EXIT
 docker run -d --name "$container" -p 127.0.0.1::3306 -e MYSQL_ROOT_PASSWORD="$password" -e MYSQL_ROOT_HOST=% mysql:8.4 --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL >/dev/null
 sql() { docker exec -e MYSQL_PWD="$password" "$container" mysql -uroot -N -B -e "$1"; }
-for i in $(seq 1 90); do if sql "SELECT 1" >/dev/null 2>&1; then break; fi; sleep 2; done
+for i in $(seq 1 90); do if docker exec -e MYSQL_PWD="$password" "$container" mysql -h127.0.0.1 -uroot -N -B -e "SELECT 1" >/dev/null 2>&1; then break; fi; sleep 2; done
 sql "CREATE DATABASE src; CREATE DATABASE dst; CREATE TABLE src.items(id BIGINT PRIMARY KEY, name VARCHAR(40), amount DECIMAL(18,2)) ENGINE=InnoDB; CREATE TABLE dst.items LIKE src.items; INSERT INTO src.items VALUES(1,'initial',123.45);"
 port="$(docker port "$container" 3306/tcp | head -1 | sed 's/.*://')"
 export CDC_RUN=true CDC_DATA_DIR="$work/state" CDC_REPLICATION_SERVER_ID=47123 CDC_SNAPSHOT_MODE=initial
-export CDC_SOURCE_HOST=127.0.0.1 CDC_SOURCE_PORT="$port" CDC_SOURCE_USER=root CDC_SOURCE_PASSWORD="$password" CDC_SOURCE_DATABASE=src CDC_SOURCE_TABLE=items CDC_SOURCE_SSL_MODE=DISABLED
-export CDC_TARGET_HOST=127.0.0.1 CDC_TARGET_PORT="$port" CDC_TARGET_USER=root CDC_TARGET_PASSWORD="$password" CDC_TARGET_DATABASE=dst CDC_TARGET_TABLE=items CDC_TARGET_SSL_MODE=DISABLED
+export CDC_SOURCE_HOST=127.0.0.1 CDC_SOURCE_PORT="$port" CDC_SOURCE_USER=root CDC_SOURCE_PASSWORD="$password" CDC_SOURCE_DATABASE=src CDC_SOURCE_TABLE=items CDC_SOURCE_SSL_MODE=REQUIRED
+export CDC_TARGET_HOST=127.0.0.1 CDC_TARGET_PORT="$port" CDC_TARGET_USER=root CDC_TARGET_PASSWORD="$password" CDC_TARGET_DATABASE=dst CDC_TARGET_TABLE=items CDC_TARGET_SSL_MODE=REQUIRED
 CDC_PREFLIGHT_ONLY=true java -jar "$jar"
 start() { java -jar "$jar" >>"$work/runner.log" 2>&1 & pid=$!; }
 stop() { kill -TERM "$pid"; wait "$pid" || [[ $? == 143 ]]; pid=""; }
