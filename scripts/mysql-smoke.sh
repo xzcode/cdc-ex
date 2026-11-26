@@ -98,12 +98,27 @@ s_sql "CREATE TABLE src.empty_items $definition;"
 t_sql "CREATE TABLE dst.empty_items $definition;"
 export CDC_SOURCE_TABLE=empty_items CDC_TARGET_TABLE=empty_items CDC_DATA_DIR="$work/empty-state"
 start
+checkpoint_ready=false
 for _ in $(seq 1 120); do
-  [[ -s "$CDC_DATA_DIR/offsets.dat" ]] && break
   kill -0 "$pid" 2>/dev/null || { echo 'Empty snapshot exited unexpectedly' >&2; exit 1; }
+  if python3 - "$CDC_DATA_DIR/offsets.dat" <<'PY'
+import sys,json,base64,pathlib
+path=pathlib.Path(sys.argv[1])
+if not path.is_file(): sys.exit(1)
+state=json.loads(path.read_text())
+offsets=[]
+for encoded in state['entries'].values():
+    if encoded is None: continue
+    offset=json.loads(base64.b64decode(encoded))
+    if 'schema' in offset and 'payload' in offset: offset=offset['payload']
+    offsets.append(offset)
+ready=bool(offsets) and all(o.get('snapshot') in (None,False,'false') or o.get('snapshot_completed') is True or o.get('last_snapshot_record') is True for o in offsets)
+sys.exit(0 if ready else 1)
+PY
+  then checkpoint_ready=true; break; fi
   sleep 0.25
 done
-[[ -s "$CDC_DATA_DIR/offsets.dat" ]]
+[[ "$checkpoint_ready" == true ]] || { echo 'Empty snapshot completion was not durable' >&2; exit 1; }
 stop
 start
 s_sql "INSERT INTO src.empty_items VALUES(1,'empty-resumed',1.25)"

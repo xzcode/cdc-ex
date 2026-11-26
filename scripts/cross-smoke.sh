@@ -13,7 +13,19 @@ suite=${CDC_CROSS_SUITE:-all}
 cleanup() {
   result=$?
   if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
-  if [[ $result -ne 0 ]]; then tail -n 120 "$work/worker.log" 2>/dev/null || true; fi
+  if [[ $result -ne 0 ]]; then
+    tail -n 120 "$work/worker.log" 2>/dev/null || true
+    # These are bounded rows from this script's disposable fixtures; never print task files or credentials.
+    if [[ "$suite" == all || "$suite" == mongodb ]]; then
+      echo 'Mongo cross fixture diagnostics: SQL source rows and connection character sets' >&2
+      sql 'SELECT @@character_set_client,@@character_set_connection,@@character_set_results;
+SELECT id,name,HEX(name),amount FROM srcsql.items ORDER BY id LIMIT 10;
+SELECT id,name,amount FROM dstsql.items ORDER BY id LIMIT 10;' >&2 || true
+      if declare -F mongo >/dev/null; then
+        mongo 'for(const name of ["mongodst","mongosrc"]){const d=db.getSiblingDB(name);print(name+".items="+EJSON.stringify(d.items.find().limit(10).toArray(),{relaxed:false}));print(name+".types="+EJSON.stringify(d.items.aggregate([{$limit:10},{$project:{_id:1,idType:{$type:"$_id"},amountType:{$type:"$amount"},name:1,amount:1}}]).toArray(),{relaxed:false}));}' >&2 || true
+      fi
+    fi
+  fi
   for name in "$mysql_name" "$mongo_name" "$pg_name" "$ch_name"; do docker rm -fv "$name" >/dev/null 2>&1 || true; done
   rm -rf "$work"
   exit "$result"
@@ -24,7 +36,7 @@ docker run -d --name "$mysql_name" --memory=512m --cpus=1 -p 127.0.0.1::3306 \
   -e MYSQL_ROOT_PASSWORD="$password" -e MYSQL_ROOT_HOST=% mysql:8.4.13 \
   --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL \
   --innodb-buffer-pool-size=64M --performance-schema=OFF --max-connections=30 >/dev/null
-sql() { docker exec -e MYSQL_PWD="$password" "$mysql_name" mysql -h127.0.0.1 -uroot -NB -e "$1"; }
+sql() { docker exec -e MYSQL_PWD="$password" "$mysql_name" mysql --default-character-set=utf8mb4 -h127.0.0.1 -uroot -NB -e "$1"; }
 ready=false
 for i in $(seq 1 90); do if sql 'SELECT 1' >/dev/null 2>&1; then ready=true; break; fi; sleep 1; done
 [[ "$ready" == true ]]
@@ -55,6 +67,8 @@ if [[ "$suite" == all || "$suite" == mongodb ]]; then
   sql "CREATE TABLE srcsql.items $definition; CREATE TABLE dstsql.items $definition;
 CREATE TABLE dstsql.objects(id VARCHAR(24) COLLATE utf8mb4_bin PRIMARY KEY,name VARCHAR(40),amount DECIMAL(18,2)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 INSERT INTO srcsql.items VALUES(1,'初始数据',123.45),(9007199254740993,'large-integer',999.99);"
+  # Validate the bytes inserted by the fixture before testing Unicode replication.
+  [[ $(sql 'SELECT HEX(name) FROM srcsql.items WHERE id=1') == E5889DE5A78BE695B0E68DAE ]]
   python3 - "$work" "$mysql_port" "$mongo_port" "$password" <<'PY'
 import json,pathlib,sys
 folder,sqlport,mongoport,password=sys.argv[1:]
@@ -80,7 +94,7 @@ PY
       if ! kill -0 "$pid" 2>/dev/null; then echo 'Cross-task worker exited unexpectedly' >&2; return 1; fi
       sleep 1
     done
-    echo 'Cross-task MongoDB assertion timed out' >&2; return 1
+    echo "Cross-task MongoDB assertion timed out: $query (last result: $actual)" >&2; return 1
   }
   start sql-mongo
   assert_mongo 'const d=db.getSiblingDB("mongodst");print(d.items.countDocuments({})===2&&d.items.findOne({_id:NumberLong("1")}).name==="初始数据"&&d.items.findOne({_id:NumberLong("9007199254740993")}).amount.toString()==="999.99"&&d.items.countDocuments({_id:{$type:"long"}})===2)'

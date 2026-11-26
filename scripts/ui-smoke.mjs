@@ -58,11 +58,21 @@ async function waitDelivered(id = taskId) {
   }, { timeout: 120000, intervals: [500, 1000, 2000] }).toBe(true)
 }
 async function closeDialog() { await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).first().click() }
+async function fillNameAndIdentifier(modal, name, id) {
+  const nameInput = modal.getByLabel('Name', { exact: true })
+  const identifier = modal.getByLabel('Identifier', { exact: true })
+  await nameInput.fill(name)
+  // Name blur renders the suggested identifier. Let that render finish before
+  // selecting and replacing its contents with this fixture's recovery namespace.
+  await nameInput.press('Tab')
+  await expect(identifier).not.toHaveValue('')
+  await identifier.fill(id)
+  await expect(identifier).toHaveValue(id)
+}
 async function addConnection(id, name, database, source, serverId = replicationId) {
   await page.getByRole('button', { name: 'Add connection', exact: true }).first().click()
   const modal = page.getByRole('dialog')
-  await modal.getByLabel('Name', { exact: true }).fill(name)
-  await modal.getByLabel('Identifier', { exact: true }).fill(id)
+  await fillNameAndIdentifier(modal, name, id)
   await modal.getByLabel('Connector', { exact: true }).selectOption('MYSQL')
   await modal.getByLabel('Host', { exact: true }).fill('127.0.0.1')
   await modal.getByLabel('Port', { exact: true }).fill(port)
@@ -83,8 +93,7 @@ async function addConnection(id, name, database, source, serverId = replicationI
 async function createTask(id, name, source, sink, screenshot = false) {
   await page.getByRole('button', { name: 'New task', exact: true }).first().click()
   const modal = page.getByRole('dialog')
-  await modal.getByLabel('Name', { exact: true }).fill(name)
-  await modal.getByLabel('Identifier', { exact: true }).fill(id)
+  await fillNameAndIdentifier(modal, name, id)
   await modal.getByLabel('Source', { exact: true }).selectOption(source)
   await modal.getByLabel('Destination', { exact: true }).selectOption(sink)
   await modal.getByLabel('Capture mode', { exact: true }).selectOption('initial')
