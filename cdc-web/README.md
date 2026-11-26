@@ -35,12 +35,12 @@ cd cdc-web
 npm ci
 npx playwright install --with-deps chromium
 cd ..
-CDC_TEST_UI=true bash scripts/security-smoke.sh
+CDC_TEST_SECURITY_DATABASE=true CDC_TEST_UI=true bash scripts/security-smoke.sh
 ```
 
-The browser test requires `CDC_UI_BASE_URL`, `CDC_UI_TOKEN`, `CDC_UI_DB_PORT`, `CDC_UI_DB_USER`, and `CDC_UI_DB_PASSWORD`; the fixture supplies them. Optional `CDC_UI_SOURCE_DATABASE` / `CDC_UI_TARGET_DATABASE` default to `ui_src` / `ui_dst`. Each database must have the fixture's `items` table; the source contains one row and the destination is empty. These credentials and resources are for a disposable test environment, not an existing deployment.
+The browser test requires `CDC_UI_BASE_URL`, `CDC_UI_TOKEN`, `CDC_UI_DB_PORT`, `CDC_UI_DB_USER`, and `CDC_UI_DB_PASSWORD`; the fixture supplies them. Optional `CDC_UI_SOURCE_DATABASE` / `CDC_UI_TARGET_DATABASE` default to `ui_src` / `ui_dst`. `CDC_UI_SECOND_TARGET_DATABASE` enables a second simultaneous task against the same source with a distinct replication client ID and empty destination. The security fixture supplies `ui_dst2` for this check. Each database must have the fixture's `items` table; the source contains one row and the destination is empty. These credentials and resources are for a disposable test environment, not an existing deployment.
 
-The test creates connections through the forms, confirms redaction and credential preservation, discovers fields, creates and validates a task, starts a real MySQL snapshot, checks acknowledged delivery, pauses and resumes, and verifies equal mapped data. It also checks English/Chinese navigation, mobile layout and browser errors. Screenshots are written to `CDC_UI_SCREENSHOT_DIR` or a temporary directory. `CDC_UI_CHROMIUM` can select an existing browser executable.
+The test creates connections through the forms, confirms redaction and credential preservation, discovers fields, creates and validates a task, starts real MySQL snapshots, checks acknowledged delivery, runs two tasks concurrently with separate replication identities, pauses and resumes, and verifies equal mapped data. It also checks English/Chinese navigation, mobile layout and browser errors. Desktop, mapping, comparison, concurrent-task and mobile screenshots are written to `CDC_UI_ARTIFACT_DIR` (or the `ui-artifacts` directory in the working directory). `CDC_UI_SCREENSHOT_DIR` remains accepted as a compatibility alias. `CDC_UI_CHROMIUM` can select an existing browser executable.
 
 ## Security and display behavior
 

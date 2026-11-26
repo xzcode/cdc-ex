@@ -8,6 +8,8 @@ Use endpoint type `MONGODB` and string options `host`, `port` (default `27017`),
 
 Both endpoints must already have ordinary, non-capped collections. Source collections require `changeStreamPreAndPostImages.enabled=true`; the tool does not enable this setting on the user's behalf. Source access needs collection reads, metadata reads and Change Streams. Sink access needs reads, metadata reads, and transactional writes. The server must support pre/post-images (MongoDB 6.0+) and replica-set transactions. Standalone, mongos/sharded, capped, time-series and system collections are rejected by this initial provider. Those topologies are not certified by a replica-set test.
 
+Both source and sink credentials also require the read-only `replSetGetConfig` privilege on the cluster resource, supplied by `clusterMonitor` on `admin` or a narrowly scoped custom role. This is required for identity verification; the provider does not configure the replica set. Identity combines the immutable `settings.replicaSetId`, replica-set name, namespace and collection UUID. Ordinary replica-set reconfiguration preserves this identity, while restoring a collection with its original UUID into a new replica set does not. Deployments that prohibit reading this configuration cannot pass preflight. Reusing a full physical clone that preserves both identities is outside the supported recovery contract.
+
 The sink requires explicit `documentMode=replace`. This means the task owns the entire mapped destination document: a source field removal removes that field at the destination. `_id` must be explicitly mapped, scalar and non-null; document-valued keys are outside this initial contract. Secondary unique indexes are rejected at preflight; target validators are respected, and a rejected write retains the batch.
 
 ## Snapshot, change capture and recovery
@@ -16,7 +18,7 @@ The sink requires explicit `documentMode=replace`. This means the task owns the 
 
 After all snapshot rows are durable, the checkpoint changes to streaming and the connector opens a collection Change Stream at the saved timestamp. Operations at or before that timestamp are already included in the snapshot. Later operations are journaled in stream order. The stream requests `fullDocument=required` and `fullDocumentBeforeChange=required`; updates use stored exact historical images rather than `updateLookup`, which can observe a later document version. Missing images stop capture.
 
-The opaque resume token advances only after the whole corresponding batch is durably accepted. Empty stream batches can persist their post-batch high-water token. Checkpoint replacement uses a forced temporary file, atomic rename, and directory sync on Linux. Restart uses `resumeAfter` with the saved token. Expired oplog history, lost required images, a missing/corrupt checkpoint, source UUID replacement, schema events, or a changed collection configuration block instead of resetting to the newest position.
+The opaque resume token advances only after the whole corresponding batch is durably accepted. Empty stream batches can persist their post-batch high-water token. Checkpoint replacement uses a forced temporary file, atomic rename, and directory sync on Linux. A versioned wrapper includes a SHA-256 checksum of the canonical state, so valid-JSON corruption cannot silently advance the timestamp or token. Legacy unverified files require explicit reconciliation. Restart uses `resumeAfter` with the saved token. Expired oplog history, lost required images, a missing/corrupt checkpoint, replica-set or collection identity replacement, schema events, or a changed collection configuration block instead of resetting to the newest position.
 
 `no_data` establishes and persists a snapshot timestamp but emits no initial documents. It then captures only later changes. It is intended for an already prepared destination with an explicitly chosen baseline.
 
@@ -41,6 +43,10 @@ The script owns only its disposable container and temporary directory. It checks
 
 The fixture does not certify multi-shard ordering, replica-set failover, deployments with arbitrary validators, every BSON type, every source/sink pairing, or snapshots longer than the configured history window. Operators must size both oplog retention and the snapshot history window for the task's worst interruption and initial scan duration.
 
+`CDC_CROSS_SUITE=mongodb bash scripts/cross-smoke.sh` provides separate MySQL-to-MongoDB and MongoDB-to-MySQL fixtures with explicit `_id`, integer, Decimal128 and ObjectId mappings. The compatibility matrix records whether those fixtures have actually passed. Unit tests cover checkpoint corruption and replica-set replacement with a preserved collection UUID.
+
+中文要点：当前仅支持副本集，不支持分片集群。源端和目标端均需具备读取副本集配置的权限，用于校验不可变实例身份；该权限不会被用于修改配置。位点文件损坏或实例身份改变后任务会停止，不会自动跳到最新位置。
+
 ## Primary references
 
 - [MongoDB snapshot read concern and atClusterTime](https://www.mongodb.com/docs/manual/reference/read-concern-snapshot/)
@@ -48,3 +54,6 @@ The fixture does not certify multi-shard ordering, replica-set failover, deploym
 - [MongoDB Change Streams and exact pre/post-images](https://www.mongodb.com/docs/manual/changestreams/)
 - [MongoDB server change-stream image semantics](https://github.com/mongodb/mongo/blob/master/docs/change_streams.md)
 - [Java driver change streams](https://www.mongodb.com/docs/drivers/java/sync/current/logging-monitoring/change-streams/)
+- [MongoDB replica-set identity](https://www.mongodb.com/docs/manual/reference/replica-configuration/)
+- [replSetGetConfig command](https://www.mongodb.com/docs/manual/reference/command/replsetgetconfig/)
+- [clusterMonitor built-in role](https://www.mongodb.com/docs/manual/reference/built-in-roles/)

@@ -1,0 +1,40 @@
+{
+  "id": "mysql-to-clickhouse",
+  "source": {
+    "type": "MYSQL",
+    "options": {
+      "host": "mysql.example.invalid",
+      "port": "3306",
+      "user": "cdc_reader",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "app",
+      "table": "orders",
+      "sslMode": "VERIFY_IDENTITY",
+      "replicationServerId": "5401"
+    }
+  },
+  "sink": {
+    "type": "CLICKHOUSE",
+    "options": {
+      "host": "clickhouse.example.invalid",
+      "port": "8443",
+      "user": "cdc_writer",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "analytics",
+      "table": "orders_current",
+      "tls": "true",
+      "mode": "current_state",
+      "exclusiveWriter": "true"
+    }
+  },
+  "snapshotMode": "initial",
+  "mapping": {
+    "rename": {},
+    "conversions": {},
+    "exclude": []
+  },
+  "journalBytes": 268435456,
+  "journalEvents": 1000000,
+  "batchSize": 128,
+  "maxFailures": 12
+}

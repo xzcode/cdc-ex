@@ -1,29 +1,241 @@
-name: Java CI
+name: V1 CI
 on:
   push:
   pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: v1-ci-${{ github.ref }}
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        source: [MYSQL, MARIADB]
-        target: [MYSQL, MARIADB]
+    name: Build tested distribution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cdc-web/package-lock.json
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: mvn -B -ntp clean verify
-      - run: java -jar cdc-server/target/cdc-server-0.1.0-SNAPSHOT.jar
-      - run: bash scripts/mysql-smoke.sh
+      - name: Build the management UI
+        working-directory: cdc-web
+        run: |
+          npm ci
+          npm run build
+      - name: Check acceptance scripts
+        run: |
+          for script in scripts/*.sh; do bash -n "$script"; done
+          node --check scripts/ui-smoke.mjs
+      - name: Verify Java and generate the Maven SBOM
+        run: >-
+          mvn -B -ntp clean verify
+          org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
+          -DoutputFormat=json -DincludeTestScope=false -DoutputReactorProjects=false
+      - name: Freeze the tested artifact and its provenance
+        run: |
+          CURRENT_VERSION=$(cat VERSION)
+          mkdir -p target/tested
+          cp "cdc-server/target/cdc-server-$CURRENT_VERSION.jar" target/tested/cdc-ex.jar
+          cp target/bom.json target/tested/bom.json
+          java -jar target/tested/cdc-ex.jar | tee target/usage.txt
+          rg --fixed-strings 'CDC EX:' target/usage.txt
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,subprocess
+          folder=pathlib.Path('target/tested')
+          commit=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert commit==os.environ['GITHUB_SHA']
+          metadata={'version':pathlib.Path('VERSION').read_text().strip(),'commit':commit,
+            'jarSha256':hashlib.sha256((folder/'cdc-ex.jar').read_bytes()).hexdigest(),
+            'sbomSha256':hashlib.sha256((folder/'bom.json').read_bytes()).hexdigest(),
+            'workflowRunId':os.environ['GITHUB_RUN_ID'],'workflowAttempt':os.environ['GITHUB_RUN_ATTEMPT'],
+            'workflowUrl':f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+            'javaRelease':21,'nodeMajor':24}
+          (folder/'build.json').write_text(json.dumps(metadata,indent=2)+'\n')
+          PY
+      - name: Upload the exact JAR used by every runtime acceptance job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: tested-distribution
+          path: target/tested/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: unit-test-results
+          path: '**/target/surefire-reports/*.xml'
+          if-no-files-found: warn
+          retention-days: 14
+
+  integration:
+    name: Accept ${{ matrix.name }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: MySQL to MySQL, script: mysql, source: MYSQL, target: MYSQL}
+          - {name: MySQL to MariaDB, script: mysql, source: MYSQL, target: MARIADB}
+          - {name: MariaDB to MySQL, script: mysql, source: MARIADB, target: MYSQL}
+          - {name: MariaDB to MariaDB, script: mysql, source: MARIADB, target: MARIADB}
+          - {name: MongoDB native, script: mongodb}
+          - {name: PostgreSQL native, script: postgresql}
+          - {name: ClickHouse modes, script: clickhouse}
+          - {name: Kafka pipelines and broker recovery, script: kafka, maven: true}
+          - {name: MongoDB heterogeneous mapping, script: cross, suite: mongodb}
+          - {name: PostgreSQL heterogeneous mapping, script: cross, suite: postgresql}
+          - {name: ClickHouse heterogeneous mapping, script: cross, suite: clickhouse}
+          - {name: API security and real UI, script: security}
+          - {name: Kafka TLS and SASL, script: kafka-security, maven: true}
+          - {name: Measured workload and crash recovery, script: acceptance}
+    env:
+      JAVA_TOOL_OPTIONS: -Xmx256m -XX:MaxDirectMemorySize=64m
+      CDC_TEST_SOURCE_TYPE: ${{ matrix.source }}
+      CDC_TEST_TARGET_TYPE: ${{ matrix.target }}
+      CDC_CROSS_SUITE: ${{ matrix.suite }}
+      CDC_TEST_KAFKA_BROKER_SUITE: ${{ matrix.script == 'kafka' && 'true' || 'false' }}
+      CDC_TEST_SECURITY_DATABASE: ${{ matrix.script == 'security' && 'true' || 'false' }}
+      CDC_TEST_UI: ${{ matrix.script == 'security' && 'true' || 'false' }}
+      CDC_UI_CHROMIUM: /opt/google/chrome/chrome
+      CDC_UI_SCREENSHOT_DIR: target/ui-smoke
+      CDC_ACCEPTANCE_REPORT: target/acceptance/acceptance-results.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: ${{ matrix.maven && 'maven' || '' }}
+          cache-read-only: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: matrix.script == 'security'
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cdc-web/package-lock.json
+      - name: Install browser acceptance dependencies
+        if: matrix.script == 'security'
+        working-directory: cdc-web
+        run: |
+          npm ci
+          test -x "$CDC_UI_CHROMIUM"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: tested-distribution
+          path: target/tested
+      - name: Exercise isolated real services
         env:
-          CDC_TEST_SOURCE_TYPE: ${{ matrix.source }}
-          CDC_TEST_TARGET_TYPE: ${{ matrix.target }}
+          SMOKE_SCRIPT: scripts/${{ matrix.script }}-smoke.sh
+        run: bash "$SMOKE_SCRIPT" target/tested/cdc-ex.jar
+      - name: Upload real UI acceptance screenshots
+        if: always() && matrix.script == 'security'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ui-acceptance-screenshots
+          path: target/ui-smoke/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload real Kafka test results
+        if: always() && matrix.maven
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ matrix.script }}-test-results
+          path: '**/target/surefire-reports/*.xml'
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload measured acceptance evidence
+        if: matrix.script == 'acceptance'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: acceptance-results
+          path: target/acceptance/acceptance-results.json
+          if-no-files-found: error
+          retention-days: 30
+
+  docker:
+    name: Docker distribution and persistent volume
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: bash scripts/docker-smoke.sh
+
+  packaging:
+    name: Release artifact integrity
+    needs: [build, integration]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: tested-distribution
+          path: target/tested
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: acceptance-results
+          path: target/acceptance
+      - name: Package and validate the tested binary and exact source commit
+        env:
+          CDC_RELEASE_SOURCE_SHA: ${{ github.sha }}
+          CDC_BUILD_RUN_ID: ${{ github.run_id }}
+          CDC_ACCEPTANCE_REPORT: target/acceptance/acceptance-results.json
+        run: |
+          bash scripts/package-release.sh target/tested/cdc-ex.jar dist/release target/tested/bom.json target/tested/build.json
+          cp target/tested/cdc-ex.jar target/altered.jar
+          printf '\n' >> target/altered.jar
+          if bash scripts/package-release.sh target/altered.jar target/rejected-release target/tested/bom.json target/tested/build.json; then
+            echo 'Packaging accepted a modified binary' >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: validated-release-package
+          path: dist/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  gate:
+    name: V1 acceptance gate
+    needs: [build, integration, docker, packaging]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every gate to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json,os
+          results=json.loads(os.environ['RESULTS'])
+          failed={name:job['result'] for name,job in results.items() if job['result']!='success'}
+          if failed: raise SystemExit('Required V1 gates did not pass: '+json.dumps(failed,sort_keys=True))
+          print('All V1 CI gates passed for the same tested source commit and JAR.')
+          PY

@@ -1,0 +1,16 @@
+{
+  "id": "mysql-to-mariadb",
+  "name": "Orders to MariaDB",
+  "sourceConnectionId": "mysql-orders-source",
+  "sinkConnectionId": "mariadb-orders-target",
+  "snapshotMode": "initial",
+  "mapping": {
+    "rename": {},
+    "conversions": {},
+    "exclude": []
+  },
+  "journalBytes": 268435456,
+  "journalEvents": 1000000,
+  "batchSize": 128,
+  "maxFailures": 12
+}

@@ -1,21 +1,21 @@
-# Development roadmap
+# M0–M9 delivery map
 
-M0 design baseline committed. M1 implementation and build verification have started; real database acceptance remains a gate. Kafka is included in V1.
+The `0.1.0-rc.1` implementation covers every stage below. Release publication is conditional on the exact commit passing the aggregate V1 CI gate. This map distinguishes implemented deliverables from the evidence used to accept them; it does not certify untested versions or pairings.
 
-| Stage | Deliverable | Gate |
+| Stage | Implemented deliverable | Acceptance gate |
 | --- | --- | --- |
-| M0 | Scope, architecture, connector contract, roadmap | reviewed design and explicit limits |
-| M1 | Maven modules, event types, connector SPI, SQLite durable journal, supervisor, MySQL source/sink | actual MySQL initial snapshot and live DML; crash/restart and no silent loss |
-| M2 | MariaDB independent source/sink, version preflight | real MariaDB DML and restart; MySQL/MariaDB cross-sync |
-| M3 | MongoDB source/sink, BSON mappings | replica set change stream, patch/delete, replay and mapped cross-sync |
-| M4 | PostgreSQL source/sink, WAL and typed mappings | real pgoutput slot, snapshot, DML and recovery |
-| M5 | ClickHouse sink and limited snapshot/cursor/change-table source | batch write, version/tombstone, FINAL comparison, cursor bounds and unsupported mode rejection |
-| M5K | Apache Kafka source/sink, topic mappings, offset recovery and security | real broker tests; database-to-topic, topic-to-database and topic-to-topic; replay and rebalance |
-| M6 | Web UI, connection preflight, task wizard, control, monitoring, logs | real tasks through UI with sanitized diagnostics |
-| M7 | Mappings, schema drift, data comparison, retry and recovery | type fixtures, supported heterogeneous paths, expired offset and blocked event recovery |
-| M8 | Security, i18n, distribution, documented compatibility | authenticated API, persistent volume, JAR/Docker smoke test |
-| M9 | V1 integration/performance acceptance and release | tested capability matrix and known limits; no blanket certification |
+| M0 | Explicit one-way scope, connector contract and storage ordering | Current scope/architecture/runbooks match implementation |
+| M1 | Java modules, typed events, SQLite journal, supervisor, MySQL source/sink | Actual snapshot, empty-snapshot restart, DML, key change, retained retry and crash/expiry workload |
+| M2 | Independent MariaDB source and JDBC target | All four MySQL/MariaDB directions |
+| M3 | Replica-set MongoDB fixed-boundary snapshot, exact images and BSON target | Native fidelity/recovery; explicit SQL/ObjectId/decimal mapping fixtures |
+| M4 | PostgreSQL pgoutput, typed values, operator-owned slot/publication | Snapshot, empty snapshot, TOAST, DML, crash recovery, slot loss/advance and TRUNCATE blocking |
+| M5 | ClickHouse history/current-state targets and three limited source modes | Durable versions, tombstones, FINAL state, cursor boundaries and changelog gap rejection |
+| M5K | Optional Kafka source/sink, strict envelope, offsets and TLS/SASL | SQL→topic A→topic B→SQL, rebalance/replay/expiry/outage and transport negative tests |
+| M6 | English/Chinese Vue UI and authenticated management API | Actual browser forms, concurrent tasks, pause/resume and quiescent comparison |
+| M7 | Field/key mappings, schema fences, bounded comparisons and repair/retry | Three heterogeneous fixture families and deliberate failure/recovery assertions |
+| M8 | Encrypted config, redaction, safe diagnostics, loopback binding, JAR/Docker | API/security negatives, packaged UI, non-root read-only Docker and persistent volume |
+| M9 | Reproducible integration gate, bounded measured workload and release pipeline | All jobs pass; tested binary provenance, SBOM, checksums and release artifact validation |
 
-M1 must implement durable source/sink checkpoint separation before exposing replication. Do not defer basic correctness to a later milestone. Each database stage must add real integration fixtures with isolated credentials and pinned images. Fault-injection tests should target journal commit, source offset flush, target commit and sink watermark boundaries. Avoid unrelated test work; do not advertise untested functionality.
+Exact fixtures: MySQL 8.4.13, MariaDB 11.4.13, MongoDB 8.0.15, PostgreSQL 17.7, ClickHouse 25.8.7.3 and Apache Kafka 4.0.0 with Kafka Java client 3.9.1. Future versions require separate acceptance. [ACCEPTANCE.md](ACCEPTANCE.md) lists the scripts and evidence boundaries.
 
-Version baseline candidates: MySQL 8.0/8.4, MariaDB 11.4/11.8, MongoDB 7/8, PostgreSQL 16/17, ClickHouse supported LTS, Kafka 3.9/4.x candidates (verify exact client/broker compatibility). Select exact dependency and container versions after compatibility review; these are targets, not verified version claims.
+Deferred work includes distributed scheduling/HA, source fan-out reuse, multi-master conflict handling, automatic schema migration, wider SQL/BSON mappings, additional Kafka envelope formats, stronger cross-system transactional delivery and receipt retention with a separately proven safe reclamation protocol.

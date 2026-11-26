@@ -1,33 +1,21 @@
-# M9 integration handoff
+# M9 integration and release handoff
 
-Work is proceeding through M9 without a milestone-by-milestone approval pause. This file is a checkpoint, not a completed acceptance certificate.
+The M1–M9 implementation is in the `0.1.0-rc.1` source tree. [ROADMAP.md](ROADMAP.md) maps each deliverable to its acceptance script, and [ACCEPTANCE.md](ACCEPTANCE.md) describes the exact gate and evidence boundaries.
 
-## Implemented
+## Release ownership and provenance
 
-- Shared provider SPI, explicit endpoint/task configuration, one-way multi-task supervisor, independent durable capture and sink watermarks.
-- Atomic, checksummed, fsynced Debezium offset store; acknowledged payload compaction with retained replay receipts; logical capacity, physical journal and disk-reserve guards.
-- MySQL and independent MariaDB binlog capture/sinks; MongoDB fixed-boundary snapshot and exact-image Change Streams; PostgreSQL pgoutput; Kafka source/sink; ClickHouse envelope sinks and limited snapshot/cursor/changelog readers.
-- Explicit field rename/exclusion/conversion, exact decimal/integer checks, bounded quiescent comparison, DDL preview only, source/target identity and schema fencing.
-- Authenticated HTTP control plane, AES-256-GCM connection storage, separate deployment key, process/task locks, cycle and destination-ownership checks, safe diagnostics.
-- Vue/TypeScript UI, English and Simplified Chinese, connection preflight, task creation/control, metrics and audit views.
-- JAR, pinned-base Dockerfile, Compose configuration and disposable acceptance scripts.
+The integration branch is validated before it is advanced to `master`. The `V1 CI` workflow builds one tested JAR, runs all required integration jobs, verifies the Docker distribution and validates packaging. Its final gate requires every dependency to succeed; skipped or cancelled gates cannot count as a release pass.
 
-## Verified at this checkpoint (2026-11-26)
+`Publish release candidate` runs only after a successful own-repository push to `master`. It checks the workflow identity and exact tested commit, refuses an outdated master run, downloads the tested binary and measurement report from that exact run, and validates their build metadata and hashes. It never substitutes a fresh untested JAR. Existing tags/releases are preserved. The version comes from `VERSION`; the release is explicitly marked prerelease.
 
-- Prior commit 678da789: GitHub Actions run 45785635121 passed all four MySQL/MariaDB source/sink combinations. Actual versions: MySQL 8.4.13 and MariaDB 11.4.13.
-- Full default Java 21 Maven builds on the integration host succeeded through all 12 modules, including the new storage, mapping and connector tests available at those snapshots.
-- PostgreSQL 17.7 real snapshot, exact types, TOAST, DML, key changes, clean/hard-crash restart, retained retries, schema drift and missing-slot rejection passed.
-- MongoDB 8.0.15 real snapshot, BSON fidelity, exact update images, delete, graceful/hard-crash recovery, destination outage and expired boundary rejection passed.
-- Kafka 4.0.0 with client 3.9.1 passed real partition/rebalance, checkpoint replay/expiry, topic recreation and invalid payload cases. TLS and SASL PLAIN/SCRAM transport cases also passed.
-- Real packaged-server security checks passed locally: authentication, encrypted credential storage/redaction, ownership, deployment-key rejection and restricted binding.
-- Frontend production build passed. Real UI/database acceptance and the final aggregate CI commit remain gates.
+Each release includes executable JAR, exact Git source archive, SHA-256 checksums, pinned-plugin CycloneDX SBOM, actual nested runtime dependency hashes, frontend asset hashes, build/run provenance and measured recovery workload output. The release notes receive the exact validated SHA and CI URL at publication. Those artifacts are the final evidence, rather than a mutable hand-written success count in this file.
 
-## Remaining acceptance work
+## Operational handoff
 
-Complete the latest-code SQL matrix, ClickHouse native fixtures, SQL/Kafka full chain, mapped heterogeneous paths, real UI task flow, bounded performance/fault workload, Docker smoke, final CI and release artifacts. Update this checkpoint with exact final commit, workflow, test counts and measured results after they pass.
+Use [RUNBOOK.md](RUNBOOK.md) for setup, permissions, backup, resource limits, repair and generation replacement. The UI and CLI use the same provider implementations and durable runtime. Preserve each task's whole state directory and the deployment key consistently; do not edit/delete offsets or journals to bypass a failed preflight.
 
-## Deliberate limits
+The release protocol fingerprint intentionally distinguishes this candidate from earlier preview state. Existing preview users must reconcile data and create a reviewed new generation; there is no automatic checkpoint migration. Source transactions are not an end-to-end transaction across sinks. Replay, bounded lifetime receipt retention and the strict per-provider type/topology limitations remain part of the delivered contract.
 
-One table/collection/topic per task; four concurrent managed tasks per node. No distributed HA, multi-master replication, automatic destructive DDL, raw Kafka forwarding, arbitrary scripts or end-to-end exactly-once promise. MySQL/MariaDB SQL types are a strict signed-integer/fixed-decimal/text subset. MongoDB requires a replica set and source pre/post-images; sharded topology is rejected. PostgreSQL requires an operator-created slot/publication and FULL replica identity. ClickHouse is not general native CDC, and current-state queries require FINAL. Interrupted SQL/ClickHouse snapshots can block for explicit reconciliation. Receipt identities are retained without automatic expiry; the configured lifetime event limit and disk budget can require an explicit increase or a reconciled new generation. Comparisons require quiescent writes and enforce row/byte limits.
+## Diagnosing a failed gate
 
-Use the per-connector runbooks and the final tested capability matrix before choosing a path. Do not infer universal cross-database compatibility from the presence of a connector.
+Read the failed job and the matching script first. A blocked fixture may expose a real consistency guard, an unsupported configuration or a test setup race; preserve that distinction. Fix the owning provider/runtime or fixture, rerun the relevant case, and then require a complete V1 CI run for the resulting source commit. Do not publish by disabling the failing gate or by using an earlier successful artifact with different source.

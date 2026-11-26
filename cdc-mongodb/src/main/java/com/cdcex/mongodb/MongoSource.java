@@ -101,8 +101,8 @@ final class MongoSource implements SourceConnector {
             activeCursor=cursor;
             while(!closed) {
                 BsonDocument metadata=MongoProvider.collectionMetadata(client,endpoint);
-                if(!initial.identity().equals(MongoProvider.identity(endpoint,metadata)) || !schema.equals(MongoProvider.schema(metadata)))
-                    throw new IllegalStateException("MongoDB source collection identity or options changed");
+                if(!initial.identity().equals(MongoProvider.identity(client,endpoint,metadata)) || !schema.equals(MongoProvider.schema(metadata)))
+                    throw new IllegalStateException("MongoDB source replica-set identity, collection identity or options changed");
                 List<ChangeEvent> batch=new ArrayList<>();
                 BsonDocument token=null;
                 ChangeStreamDocument<BsonDocument> change=cursor.tryNext();

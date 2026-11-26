@@ -36,7 +36,8 @@ final class PostgresSink implements SinkConnector {
                         case DELETE -> {bind(delete,schema.keys(),event.key());delete.executeUpdate();}
                         case SNAPSHOT,INSERT,UPDATE -> {
                             if(event.after()==null||!event.after().keySet().equals(columns.keySet()))throw new IllegalStateException("PostgreSQL full row shape mismatch");
-                            if(event.operation()==ChangeEvent.Operation.UPDATE&&event.before()!=null) {
+                            if(event.operation()==ChangeEvent.Operation.UPDATE) {
+                                if(event.before()==null||!event.before().keySet().equals(columns.keySet()))throw new IllegalStateException("Full PostgreSQL before image required");
                                 Map<String,Object> old=new LinkedHashMap<>();for(String k:schema.keys())old.put(k,event.before().get(k));key(old);
                                 if(!old.equals(event.key())){bind(delete,schema.keys(),old);delete.executeUpdate();}
                             }

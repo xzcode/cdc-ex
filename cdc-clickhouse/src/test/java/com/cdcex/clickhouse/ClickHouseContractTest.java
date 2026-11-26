@@ -4,7 +4,7 @@ import com.cdcex.core.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import java.math.*;
-import java.nio.file.Path;
+import java.nio.file.*;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -47,6 +47,21 @@ class ClickHouseContractTest {
         var checkpoint=new ClickHouseCheckpoint(directory);
         var state=new ClickHouseCheckpoint.State(1,"uuid","schema","cursor","stream","generation",List.of("9","z"));
         checkpoint.write(state);assertEquals(state,new ClickHouseCheckpoint(directory).read());
+    }
+    @Test void validJsonCursorCorruptionCannotSkipRecordsOrRewriteTheCheckpoint()throws Exception {
+        var checkpoint=new ClickHouseCheckpoint(directory);
+        checkpoint.write(new ClickHouseCheckpoint.State(1,"uuid","schema","cursor","stream","generation",List.of("9","z")));
+        Path path=directory.resolve("clickhouse-checkpoint.json");
+        String original=Files.readString(path),corrupted=original.replace("\"9\"","\"90\"");
+        assertNotEquals(original,corrupted);Files.writeString(path,corrupted);
+        var failure=assertThrows(IllegalStateException.class,checkpoint::read);
+        assertTrue(failure.getMessage().contains("checksum"));assertEquals(corrupted,Files.readString(path));
+    }
+    @Test void legacyUnverifiedCursorRequiresExplicitReconciliation()throws Exception {
+        Files.writeString(directory.resolve("clickhouse-checkpoint.json"),EventCodec.json(
+            new ClickHouseCheckpoint.State(1,"uuid","schema","cursor","stream","generation",List.of("9","z"))));
+        var failure=assertThrows(IllegalStateException.class,()->new ClickHouseCheckpoint(directory).read());
+        assertTrue(failure.getMessage().contains("Unsupported"));
     }
     @Test void invalidChangelogOperationAndMissingImagesAreBlocked() {
         Endpoint e=new Endpoint("CLICKHOUSE",Map.of("database","src","table","changes"));

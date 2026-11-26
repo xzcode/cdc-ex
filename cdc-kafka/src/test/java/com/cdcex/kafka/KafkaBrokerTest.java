@@ -115,4 +115,14 @@ class KafkaBrokerTest {
             assertThrows(ExecutionException.class,()->worker.get(10,TimeUnit.SECONDS));
         }
     }
+    @Test void freshTaskCannotFenceAnIdleOwnerBeforeTheFirstRecord() throws Exception {
+        String topic=topic(1),group=group();Endpoint endpoint=endpoint(topic,group);
+        var owner=source(endpoint,"owner",true);Future<?> ownerFuture=run(owner,batch->fail("No records were produced"));
+        await(()->{try{return !admin.describeConsumerGroups(List.of(group)).all().get(3,TimeUnit.SECONDS).get(group).members().isEmpty();}catch(Exception e){return false;}});
+        assertTrue(admin.listConsumerGroupOffsets(group).partitionsToOffsetAndMetadata().get(10,TimeUnit.SECONDS).isEmpty());
+        var contender=source(endpoint,"contender",true);
+        assertThrows(ExecutionException.class,()->run(contender,batch->fail("Contender captured records")).get(20,TimeUnit.SECONDS));
+        assertFalse(ownerFuture.isDone(),"An idle owner must not be fenced by a new task");
+        owner.close();ownerFuture.get(20,TimeUnit.SECONDS);
+    }
 }

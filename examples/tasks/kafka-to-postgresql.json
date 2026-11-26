@@ -1,0 +1,43 @@
+{
+  "id": "kafka-to-postgresql",
+  "source": {
+    "type": "KAFKA",
+    "options": {
+      "bootstrapServers": "broker.example.invalid:9093",
+      "topic": "orders-cdc",
+      "format": "CDC_EX",
+      "securityProtocol": "SSL",
+      "sslTruststoreLocation": "/run/cdc-secrets/kafka-truststore.p12",
+      "sslTruststoreType": "PKCS12",
+      "sslTruststorePassword": "REPLACE_FROM_SECRET_MANAGER",
+      "maxMessageBytes": "1048576",
+      "groupId": "cdc-ex-orders-generation-1",
+      "startOffset": "earliest",
+      "maxPollRecords": "128"
+    }
+  },
+  "sink": {
+    "type": "POSTGRESQL",
+    "options": {
+      "host": "postgresql.example.invalid",
+      "port": "5432",
+      "user": "cdc_writer",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "analytics",
+      "schema": "public",
+      "table": "orders",
+      "sslMode": "verify-full",
+      "sslRootCert": "/run/cdc-secrets/postgresql-ca.pem"
+    }
+  },
+  "snapshotMode": "earliest",
+  "mapping": {
+    "rename": {},
+    "conversions": {},
+    "exclude": []
+  },
+  "journalBytes": 268435456,
+  "journalEvents": 1000000,
+  "batchSize": 128,
+  "maxFailures": 12
+}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Disposable PostgreSQL 17 acceptance. Never points at an existing service.
 set -euo pipefail
-jar="$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-SNAPSHOT.jar}")"
+jar="$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")"
 work="$(mktemp -d)"
 container="cdc-ex-pg-$$-$RANDOM"
 password="$(openssl rand -hex 18)"
@@ -43,6 +43,11 @@ export CDC_RUN=true CDC_DATA_DIR="$work/state" CDC_TASK_FILE="$work/task.json"
 CDC_PREFLIGHT_ONLY=true java -jar "$jar"
 start() { java -jar "$jar" >>"$work/runner.log" 2>&1 & pid=$!; }
 stop() { kill -TERM "$pid"; wait "$pid" || [[ $? == 143 ]]; pid=""; }
+expect_blocked() {
+  local status=0
+  timeout 30 java -jar "$jar" >>"$work/runner.log" 2>&1 || status=$?
+  [[ "$status" == 2 ]] || { echo "Expected a blocked task exit, received $status"; return 1; }
+}
 assert_sql() {
   local query="$1" expected="$2" actual
   for i in $(seq 1 75); do
@@ -89,12 +94,60 @@ sleep 2
 sql "ALTER TABLE dst.items DROP COLUMN unexpected;" >/dev/null
 assert_sql "SELECT name FROM dst.items WHERE id=7" "schema-retry"
 stop
+# Advancing a retained slot externally must not make the runner silently skip it.
+sql "INSERT INTO src.items(id,name,amount) VALUES(8,'externally-consumed',8.25);" >/dev/null
+sql "SELECT pg_replication_slot_advance('cdc_test_slot',pg_current_wal_lsn());" >/dev/null
+expect_blocked
+[[ "$(sql 'SELECT count(*) FROM dst.items WHERE id=8')" == 0 ]] || { echo 'Externally advanced slot was silently accepted'; exit 1; }
 # A missing or recreated slot cannot silently become a new starting point.
 sql "SELECT pg_drop_replication_slot('cdc_test_slot');" >/dev/null
-if timeout 30 java -jar "$jar" >>"$work/runner.log" 2>&1; then echo 'Missing slot was not rejected'; exit 1; fi
+expect_blocked
 [[ "$(sql "SELECT count(*) FROM pg_replication_slots WHERE slot_name='cdc_test_slot'")" == 0 ]] || { echo 'Missing slot was recreated'; exit 1; }
-sql "INSERT INTO src.items(id,name,amount) VALUES(8,'lost-slot-gap',8.25);" >/dev/null
+sql "INSERT INTO src.items(id,name,amount) VALUES(9,'lost-slot-gap',9.25);" >/dev/null
 sql "SELECT pg_create_logical_replication_slot('cdc_test_slot','pgoutput');" >/dev/null
-if timeout 30 java -jar "$jar" >>"$work/runner.log" 2>&1; then echo 'Recreated slot gap was not rejected'; exit 1; fi
-[[ "$(sql 'SELECT count(*) FROM dst.items WHERE id=8')" == 0 ]] || { echo 'Unexpected skip or replacement snapshot'; exit 1; }
-echo 'PostgreSQL snapshot, typed values, TOAST, DML, key change, clean/crash restart, retained retry, schema drift and lost-slot blocking passed.'
+expect_blocked
+[[ "$(sql 'SELECT count(*) FROM dst.items WHERE id IN (8,9)')" == 0 ]] || { echo 'Unexpected skip or replacement snapshot'; exit 1; }
+# A separate disposable task proves Debezium does not filter TRUNCATE away.
+sql "CREATE TABLE src.truncate_probe(id BIGINT PRIMARY KEY,name TEXT);
+CREATE TABLE dst.truncate_probe(LIKE src.truncate_probe INCLUDING ALL);
+ALTER TABLE src.truncate_probe REPLICA IDENTITY FULL;
+CREATE PUBLICATION cdc_truncate_pub FOR TABLE src.truncate_probe;" >/dev/null
+sql "SELECT pg_create_logical_replication_slot('cdc_truncate_slot','pgoutput');" >/dev/null
+python3 - <<'PY'
+import os,json,pathlib
+work=pathlib.Path(os.environ['CDC_TEST_WORK'])
+task=json.loads((work/'task.json').read_text());task['id']='postgresql-truncate'
+task['source']['options'].update(table='truncate_probe',slot='cdc_truncate_slot',publication='cdc_truncate_pub')
+task['sink']['options']['table']='truncate_probe'
+p=work/'truncate.json';p.write_text(json.dumps(task));p.chmod(0o600)
+PY
+export CDC_DATA_DIR="$work/truncate-state" CDC_TASK_FILE="$work/truncate.json"
+start
+# An empty initial snapshot must persist completion before any live data exists.
+checkpoint_ready=false
+for i in $(seq 1 45); do
+  kill -0 "$pid" 2>/dev/null || { echo 'Empty snapshot runner exited'; exit 1; }
+  if python3 - "$CDC_DATA_DIR/pg-offsets.json" <<'PY'
+import sys,json,base64,pathlib
+p=pathlib.Path(sys.argv[1])
+if not p.is_file(): sys.exit(1)
+state=json.loads(p.read_text());offsets=[json.loads(base64.b64decode(v)) for v in state['entries'].values()]
+ready=bool(offsets) and all(o.get('snapshot') in (None,False,'false') or o.get('snapshot_completed') is True or o.get('last_snapshot_record') is True for o in offsets)
+sys.exit(0 if ready else 1)
+PY
+  then checkpoint_ready=true; break; fi
+  sleep 1
+done
+[[ "$checkpoint_ready" == true ]] || { echo 'Empty snapshot completion was not durable'; exit 1; }
+stop
+start
+sql "INSERT INTO src.truncate_probe VALUES(1,'before-truncate');" >/dev/null
+assert_sql 'SELECT count(*) FROM dst.truncate_probe' '1'
+sql "TRUNCATE src.truncate_probe; INSERT INTO src.truncate_probe VALUES(2,'after-truncate');" >/dev/null
+for i in $(seq 1 45); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+if kill -0 "$pid" 2>/dev/null; then echo 'TRUNCATE did not block capture'; exit 1; fi
+status=0; wait "$pid" || status=$?; pid=""
+[[ "$status" == 2 ]] || { echo "TRUNCATE returned unexpected exit $status"; exit 1; }
+[[ "$(sql 'SELECT string_agg(id::text,chr(44) ORDER BY id) FROM dst.truncate_probe')" == 1 ]] || { echo 'Capture advanced beyond TRUNCATE'; exit 1; }
+expect_blocked
+echo 'PostgreSQL snapshot including empty-table restart, typed values, TOAST, DML, key change, clean/crash restart, retained retry, schema drift, slot advancement/loss and TRUNCATE blocking passed.'

@@ -1,0 +1,17 @@
+{
+  "id": "mysql-orders-source",
+  "name": "MySQL orders source",
+  "endpoint": {
+    "type": "MYSQL",
+    "options": {
+      "host": "mysql.example.invalid",
+      "port": "3306",
+      "user": "cdc_reader",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "app",
+      "table": "orders",
+      "sslMode": "VERIFY_IDENTITY",
+      "replicationServerId": "5401"
+    }
+  }
+}

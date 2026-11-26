@@ -1,6 +1,6 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-  <parent><groupId>com.cdcex</groupId><artifactId>cdc-ex</artifactId><version>0.1.0-SNAPSHOT</version></parent>
+  <parent><groupId>com.cdcex</groupId><artifactId>cdc-ex</artifactId><version>0.1.0-rc.1</version></parent>
   <artifactId>cdc-debezium</artifactId>
   <dependencies>
     <dependency><groupId>com.cdcex</groupId><artifactId>cdc-core</artifactId></dependency>

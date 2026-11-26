@@ -1,0 +1,46 @@
+{
+  "id": "mysql-to-mongodb",
+  "source": {
+    "type": "MYSQL",
+    "options": {
+      "host": "mysql.example.invalid",
+      "port": "3306",
+      "user": "cdc_reader",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "app",
+      "table": "orders",
+      "sslMode": "VERIFY_IDENTITY",
+      "replicationServerId": "5401"
+    }
+  },
+  "sink": {
+    "type": "MONGODB",
+    "options": {
+      "host": "mongodb.example.invalid",
+      "port": "27017",
+      "user": "cdc_writer",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "authDatabase": "admin",
+      "database": "analytics",
+      "table": "orders",
+      "replicaSet": "rs_cdc",
+      "tls": "true",
+      "documentMode": "replace"
+    }
+  },
+  "snapshotMode": "initial",
+  "mapping": {
+    "rename": {
+      "id": "_id"
+    },
+    "conversions": {
+      "_id": "BSON_INT64",
+      "amount": "BSON_DECIMAL"
+    },
+    "exclude": []
+  },
+  "journalBytes": 268435456,
+  "journalEvents": 1000000,
+  "batchSize": 128,
+  "maxFailures": 12
+}

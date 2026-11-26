@@ -9,6 +9,7 @@ public final class ApiErrors {
     @ExceptionHandler(Exception.class) public ResponseEntity<Map<String,String>> error(Exception e){
         HttpStatus status=e instanceof NoSuchElementException?HttpStatus.NOT_FOUND:e instanceof IllegalArgumentException||e instanceof org.springframework.http.converter.HttpMessageNotReadableException?HttpStatus.BAD_REQUEST:e instanceof IllegalStateException||e instanceof java.sql.SQLException?HttpStatus.CONFLICT:HttpStatus.BAD_GATEWAY;
         String message=switch(status){case NOT_FOUND->"Resource not found";case BAD_REQUEST->"Invalid configuration. Check required fields, mapping rules and connector prerequisites.";case CONFLICT->"Operation blocked. Check task state, resource ownership, destination schema and recovery requirements.";default->"Connection operation failed. Check reachability, credentials, TLS and required permissions.";};
-        return ResponseEntity.status(status).body(Map.of("code",status.name(),"message",message));
+        var failure=com.cdcex.core.Failure.describe(e);
+        return ResponseEntity.status(status).body(Map.of("code",failure.code().equals("OPERATION_FAILED")?status.name():failure.code(),"message",failure.code().equals("OPERATION_FAILED")?message:failure.message()));
     }
 }

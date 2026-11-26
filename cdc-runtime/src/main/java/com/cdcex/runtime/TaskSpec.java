@@ -25,7 +25,7 @@ public record TaskSpec(String id, Endpoint source, Endpoint sink, String snapsho
         if(journalBytes<1024||journalBytes>1099511627776L||journalEvents<1||journalEvents>1000000000L||batchSize<1||batchSize>10000||maxFailures<1||maxFailures>1000)throw new IllegalArgumentException("Invalid task resource limits");
     }
     public String fingerprint(ConnectorProvider.Inspection a,ConnectorProvider.Inspection b){
-        return EventCodec.digest(List.of(id,safe(source),safe(sink),snapshotMode,mapping,a.identity(),a.schemaFingerprint(),schemaDetails(a,false),b.identity(),b.schemaFingerprint(),schemaDetails(b,true)));
+        return EventCodec.digest(List.of("cdc-ex-protocol-v1-rc1",id,safe(source),safe(sink),snapshotMode,mapping,a.identity(),a.schemaFingerprint(),schemaDetails(a,false),b.identity(),b.schemaFingerprint(),schemaDetails(b,true)));
     }
     private static Object schemaDetails(ConnectorProvider.Inspection value,boolean sink){
         Map<String,Object> details=new TreeMap<>();

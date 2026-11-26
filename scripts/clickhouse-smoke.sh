@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-jar=$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-SNAPSHOT.jar}")
+jar=$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")
 work=$(mktemp -d)
 name="cdcex-clickhouse-$RANDOM-$$"
 password=$(openssl rand -hex 18)
@@ -73,7 +73,18 @@ for name,mode,table,target,extra in [
            mapping=dict(rename={},conversions={},exclude=[]),journalBytes=268435456,journalEvents=1000000,batchSize=128,maxFailures=30)
  pathlib.Path(folder,name+'.json').write_text(json.dumps(task))
 PY
-start() { CDC_RUN=true CDC_TASK_FILE="$work/$1.json" CDC_DATA_DIR="$work/$1-state" java -jar "$jar" >>"$work/worker.log" 2>&1 & pid=$!; }
+start() {
+  local task=$1 first_line=1
+  if [[ -f "$work/worker.log" ]]; then first_line=$(( $(wc -l <"$work/worker.log") + 1 )); fi
+  CDC_RUN=true CDC_TASK_FILE="$work/$task.json" CDC_DATA_DIR="$work/$task-state" java -jar "$jar" >>"$work/worker.log" 2>&1 & pid=$!
+  # Preflight must finish before target unavailability is injected on a resumed task.
+  for i in $(seq 1 150); do
+    if tail -n +"$first_line" "$work/worker.log" | grep -Fq "CDC EX task started: clickhouse-$task"; then return; fi
+    if ! kill -0 "$pid" 2>/dev/null; then echo 'ClickHouse worker failed during startup' >&2; return 1; fi
+    sleep 0.2
+  done
+  echo 'ClickHouse worker startup timed out' >&2; return 1
+}
 stop() { kill -TERM "$pid"; wait "$pid" || [[ $? == 143 ]]; pid=''; }
 assert_ch() {
   local query=$1 expected=$2
@@ -135,6 +146,12 @@ ch "INSERT INTO src.append_items VALUES (100,'z',999),(101,'0',999)"
 start cursor
 assert_ch 'SELECT count() FROM dst.cursor_states FINAL WHERE is_deleted=0' 131
 assert_ch "SELECT JSONExtractInt(payload,'value') FROM dst.cursor_states FINAL WHERE is_deleted=0 AND JSONExtractString(payload,'id')='0'" 999
+printf '%s\n' '{"tick":102,"id":"slash\\key\t1","value":1}' | docker exec -i "$name" clickhouse-client --user cdc --password "$password" --query 'INSERT INTO src.append_items FORMAT JSONEachRow'
+assert_ch 'SELECT count() FROM dst.cursor_states FINAL WHERE is_deleted=0' 132
+stop
+printf '%s\n' '{"tick":102,"id":"slash\\key\t2","value":2}' | docker exec -i "$name" clickhouse-client --user cdc --password "$password" --query 'INSERT INTO src.append_items FORMAT JSONEachRow'
+start cursor
+assert_ch 'SELECT count() FROM dst.cursor_states FINAL WHERE is_deleted=0' 133
 stop
 start snapshot
 expect_exit true

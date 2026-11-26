@@ -11,6 +11,7 @@ import java.util.concurrent.*;
 
 @SpringBootApplication
 public class CdcApplication {
+    private static final java.util.logging.Logger BINLOG_LOGGER=java.util.logging.Logger.getLogger("com.github.shyiko.mysql.binlog.BinaryLogClient");
     static final ObjectMapper JSON=new ObjectMapper().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     static String required(Map<String,String> env,String key){String v=env.get(key);if(v==null||v.isBlank())throw new IllegalArgumentException("Missing "+key);return v;}
     private static Endpoint legacyEndpoint(Map<String,String> env,String prefix){
@@ -30,7 +31,8 @@ public class CdcApplication {
             Long.parseLong(env.getOrDefault("CDC_JOURNAL_BYTES","268435456")),Long.parseLong(env.getOrDefault("CDC_JOURNAL_EVENTS","1000000")),128,12);
     }
     public static void main(String[] args){
-        try{run(args);}catch(Exception e){System.err.println("CDC EX blocked ("+e.getClass().getSimpleName()+"). State and offsets were retained. See the recovery runbook.");System.exit(2);}
+        BINLOG_LOGGER.setLevel(java.util.logging.Level.OFF);
+        try{run(args);}catch(Exception e){Failure f=Failure.describe(e);System.err.println("CDC EX blocked ["+f.code()+"] "+f.message()+" Diagnostic location: "+f.location());System.exit(2);}
     }
     static void run(String[] args)throws Exception{
         Map<String,String> env=System.getenv();

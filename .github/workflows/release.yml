@@ -1,0 +1,128 @@
+name: Publish release candidate
+on:
+  workflow_run:
+    workflows: [V1 CI]
+    types: [completed]
+    branches: [master]
+permissions: {}
+concurrency:
+  group: cdc-ex-release-candidate
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    if: >-
+      github.repository == 'xzcode/cdc-ex' &&
+      github.event.repository.fork == false &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the exact commit that passed V1 CI
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Verify the triggering run and protect existing releases
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          TESTED_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          [[ $(git rev-parse HEAD) == "$TESTED_SHA" ]]
+          gh api "repos/$GH_REPO/actions/runs/$TESTED_RUN" > "$RUNNER_TEMP/tested-run.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          run=json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'tested-run.json').read_text())
+          expected={'name':'V1 CI','event':'push','head_branch':'master','head_sha':os.environ['TESTED_SHA'],
+                    'status':'completed','conclusion':'success','path':'.github/workflows/ci.yml'}
+          for key,value in expected.items():
+              if run.get(key)!=value: raise SystemExit('Unexpected upstream workflow identity or result: '+key)
+          if run.get('head_repository',{}).get('full_name')!=os.environ['GH_REPO']:
+              raise SystemExit('Upstream source repository does not match')
+          PY
+          if [[ $(gh api "repos/$GH_REPO/branches/master" --jq .commit.sha) != "$TESTED_SHA" ]]; then
+            echo 'A newer master commit exists; waiting for its complete V1 CI run.'
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CURRENT_VERSION=$(cat VERSION)
+          [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] || { echo 'VERSION is not a release candidate' >&2; exit 1; }
+          RELEASE_TAG="v$CURRENT_VERSION"
+          export RELEASE_TAG
+          gh api "repos/$GH_REPO/git/matching-refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/matching-tags.json"
+          exists=$(python3 - <<'PY'
+          import json,os,pathlib
+          tags=json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'matching-tags.json').read_text())
+          print('true' if any(tag['ref']=='refs/tags/'+os.environ['RELEASE_TAG'] for tag in tags) else 'false')
+          PY
+          )
+          gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name' > "$RUNNER_TEMP/release-tags.txt"
+          if [[ "$exists" == true ]] || rg --fixed-strings --line-regexp "$RELEASE_TAG" "$RUNNER_TEMP/release-tags.txt" >/dev/null; then
+            echo 'This release tag already exists; preserving existing tags and release content.'
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo 'publish=true' >> "$GITHUB_OUTPUT"
+      - name: Download the tested binary from that exact CI run
+        if: steps.candidate.outputs.publish == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: tested-distribution
+          path: target/tested
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Download the measured acceptance report from the same run
+        if: steps.candidate.outputs.publish == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: acceptance-results
+          path: target/acceptance
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Package the tested JAR, source, dependency inventories and checksums
+        if: steps.candidate.outputs.publish == 'true'
+        env:
+          CDC_RELEASE_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          CDC_BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+          CDC_ACCEPTANCE_REPORT: target/acceptance/acceptance-results.json
+        run: bash scripts/package-release.sh target/tested/cdc-ex.jar dist/release target/tested/bom.json target/tested/build.json
+      - name: Preserve release artifacts for inspection
+        if: steps.candidate.outputs.publish == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-candidate-assets
+          path: dist/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Publish a new release candidate
+        if: steps.candidate.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          TESTED_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          CURRENT_VERSION: ${{ steps.candidate.outputs.version }}
+          RELEASE_TAG: ${{ steps.candidate.outputs.tag }}
+        run: |
+          cp docs/RELEASE_NOTES.md "$RUNNER_TEMP/release-notes.md"
+          printf '\nValidated commit: `%s`\n\nV1 CI evidence: %s\n' "$TESTED_SHA" "$TESTED_RUN_URL" >> "$RUNNER_TEMP/release-notes.md"
+          gh release create "$RELEASE_TAG" dist/release/* --repo "$GH_REPO" --target "$TESTED_SHA" \
+            --title "CDC EX $CURRENT_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease --latest=false
+          gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"

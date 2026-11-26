@@ -21,7 +21,9 @@ class MappingSpecTest {
         assertEquals(new BigDecimal("1.2345"),MappingSpec.convert("1.2345","DECIMAL"));
     }
     @Test void rejectsOverflowAndKeyLossBeforeDelivery(){
+        assertEquals("{\"$numberDecimal\":\"NaN\"}",MappingSpec.convert(Map.of("$numberDecimal","NaN"),"JSON"));
         assertThrows(ArithmeticException.class,()->MappingSpec.convert(Map.of("$numberLong","9223372036854775808"),"LONG"));
+        assertThrows(ArithmeticException.class,()->MappingSpec.convert(Map.of("$date",Map.of("$numberLong","9223372036854775808")),"STRING"));
         assertThrows(ArithmeticException.class,()->MappingSpec.convert(new BigDecimal("1.5"),"INTEGER"));
         assertThrows(IllegalArgumentException.class,()->new MappingSpec(Map.of(),Map.of(),List.of("id")).row(Map.of("id",1),true));
         assertThrows(IllegalArgumentException.class,()->new MappingSpec(Map.of("a","b"),Map.of(),List.of()).row(Map.of("a",1,"b",2),false));

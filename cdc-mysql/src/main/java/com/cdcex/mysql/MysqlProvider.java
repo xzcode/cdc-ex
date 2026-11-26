@@ -40,12 +40,12 @@ public class MysqlProvider implements ConnectorProvider {
             }
             var schema=MysqlSchema.read(c,e,role==Role.SINK);
             Map<String,String> fields=new LinkedHashMap<>();schema.columns().forEach(col->fields.put(col.name(),col.type()));
-            return new Inspection(schema.uuid()+":"+e.database()+"."+e.table(),fields,schema.keys(),Map.of(
+            return new Inspection(schema.uuid(),fields,schema.keys(),Map.of(
                 "version",MysqlSchema.variable(c,"SELECT VERSION()"),"empty","0".equals(MysqlSchema.variable(c,"SELECT EXISTS(SELECT 1 FROM "+e.qualified()+" LIMIT 1)")),
-                "schema",EventCodec.digest(schema),"namespace",e.database()+"."+e.table()));
+                "schema",EventCodec.digest(schema),"namespace",e.database()+"."+e.table(),"serverIdentity",MysqlSchema.identity(c,e)));
         }
     }
-    protected SourceConnector capture(MysqlTaskConfig cfg){return new MysqlSource(cfg);}
+    protected SourceConnector capture(MysqlTaskConfig cfg,String taskId){return new MysqlSource(cfg,taskId);}
     @Override public SourceConnector openSource(Endpoint endpoint,SourceContext context) throws Exception {
         var e=sql(endpoint);
         if(!context.fresh()){
@@ -55,7 +55,7 @@ public class MysqlProvider implements ConnectorProvider {
             if("initial".equals(context.snapshotMode())&&!AtomicOffsetStore.snapshotComplete(offsets))throw new IllegalStateException("Interrupted snapshot; reconcile in a new task generation");
         }
         Inspection pinned=inspect(endpoint,Role.SOURCE);
-        SourceConnector delegate=capture(new MysqlTaskConfig(e,e,serverId(endpoint),context.directory(),context.snapshotMode(),1,1));
+        SourceConnector delegate=capture(new MysqlTaskConfig(e,e,serverId(endpoint),context.directory(),context.snapshotMode(),1,1),context.taskId());
         return new SourceConnector(){
             public void run(DurableReceiver receiver)throws Exception{delegate.run(batch->{
                 Inspection current=inspect(endpoint,Role.SOURCE);

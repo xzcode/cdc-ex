@@ -1,47 +1,42 @@
-# Connector contract
+# Implemented connector contract
 
-All capabilities are declared, validated at runtime and exposed to the UI. A capability not implemented or tested is not advertised as supported.
+The Java interfaces are in `cdc-core`; providers are registered by the server's `ConnectorRegistry`. They expose implemented modes, not a promise of universal database compatibility. Each provider inspects its concrete physical resource and prerequisites before a task starts.
 
-## Interfaces
+## SPI
 
-SourceConnector: describe capabilities, validate config, discover namespaces and types, validate capture prerequisites, start snapshot/stream or cursor reader, emit typed batches, pause/close, return opaque position and health.
+`ConnectorProvider` provides `type()`, `capabilities()`, `inspect(Endpoint, Role)`, `openSource(Endpoint, SourceContext)` and `openSink(Endpoint, SinkContext)`. Its optional `readRows(Endpoint, limit)` supplies a bounded validation scan. An `Inspection` contains a non-secret physical identity, ordered field types, key fields and non-secret schema/topology details. Task fingerprints include identities, schema and mapping; credentials are not exposed through diagnostics.
 
-SinkConnector: describe capabilities, validate mapping/key and target schema, preview DDL, apply ordered batch with stable event IDs, return committed/failed/ambiguous outcomes, close. No success on partial/unconfirmed writes. Support explicit absent vs null and document patches where applicable.
+`SourceConnector.run(DurableReceiver)` emits an ordered batch and may acknowledge the native position only after `receiver.accept(batch)` returns successfully. An internal heartbeat can persist an empty snapshot's completed offset without fabricating a business row. Unknown metadata or operations are handled explicitly. `finite()` identifies a reader that can finish, after which the runtime drains its durable queue.
 
-Connector registry identifies database type, supported modes, tested versions, config schema, operation support and diagnostics. Secrets are resolved at runtime. Drivers use parameterized values and validated identifiers.
+`SinkConnector.apply(batch)` returns only after all supported writes have been confirmed. The runtime retries an ambiguous or failed delivery without advancing its sink watermark. `SequencedSinkConnector` additionally receives the stable SQLite journal sequence; ClickHouse uses it for deterministic versions across replay. Source transactions are not preserved as an atomic unit across arbitrary sink batches.
 
-## Source requirements
+`ChangeEvent` contains stable ID, database/collection namespace, table, operation, opaque source position, key, before, after and source timestamp. Nested values are immutable JSON-compatible values; exact integers/decimals and explicit BSON/type tags retain distinctions. `EventCodec.canonicalJson` is reserved for canonical identities; normal payload JSON preserves document field order.
 
-| Source | Prerequisites | Resume |
+## Source contracts
+
+| Source | Required setup | Durable resume identity |
 | --- | --- | --- |
-| MySQL | binlog enabled, ROW, FULL row image, unique replication client ID, required read/replication privileges | GTID or file/position plus event offset |
-| MariaDB | independent Debezium MariaDB connector; ROW/FULL, version-specific legacy position and compression constraints, read/replication privileges | MariaDB GTID or file/position |
-| MongoDB | replica set/sharded cluster, Change Streams access, sufficient oplog retention; preimages if required | resume token |
-| PostgreSQL | wal_level=logical, pgoutput publication and exclusive task slot, replication permissions and suitable replica identity | LSN plus connector-specific state |
-| ClickHouse | readable deterministic query, explicit stable unique cursor tuple or append-only change table with operation, key, payload and sequence | durable compound cursor |
-| Kafka | reachable cluster, explicit topics, consumer group, compatible decoder, read/group ACL | cluster/topic identity, partition and next offset |
+| MySQL | ROW/FULL binlog, InnoDB, allowed types, read/replication/metadata privileges, unique replication client ID | checksummed Debezium offset + schema history + physical table identity |
+| MariaDB | dedicated MariaDB connector; ROW/FULL; legacy event position enabled and log compression disabled | MariaDB connector offset + schema history + physical identity |
+| MongoDB | replica set, exact pre/post-images, readable history and snapshot boundary | replica-set ID + collection UUID + native resume token |
+| PostgreSQL | logical WAL, UTF-8, FULL replica identity, operator-created exclusive pgoutput slot/publication | system identifier + database/table identity + slot boundary + native LSN state |
+| ClickHouse | Atomic database/table UUID; allowed local table/types; mode-specific guarantees | table UUID/schema + snapshot status or exact cursor/changelog position |
+| Kafka | explicit topic, task-exclusive group, CDC EX envelopes, required metadata/read/group permissions | cluster/topic IDs + next offset per partition |
 
-MySQL/MariaDB must preserve connector schema history. MongoDB updates may be patches; require full post-images when necessary or implement safe patch handling, never assume update lookup corresponds to the exact historic event. PostgreSQL TOAST/unavailable values and replica identity must be handled without overwriting data with nulls. Use independent task IDs/slots/offset namespaces; validate source log retention and alert on lag.
+The provider revalidates relevant schema and resource identity at delivery or capture boundaries. This detects supported local resource changes; it is not a general cross-cluster failover protocol. Lost retention does not cause a silent resnapshot or latest-offset reset.
 
-ClickHouse cursor polling requires a monotonically progressing, immutable, unique ordering tuple and guaranteed visibility ordering or an explicit overlap/reconciliation policy. A timestamp alone cannot guarantee loss-free capture. Application-owned changelog mode requires producer guarantees, ordered committed records, retained tombstones, and deterministic replay. It is not native CDC of arbitrary ClickHouse tables.
+## Target contracts
 
-## Target requirements
+SQL targets use parameterized JDBC transactions and explicit column lists. They validate types, precision, key shape and schema; unsupported narrowing, rounding and coercion block. MySQL/MariaDB text keys require supported binary equality semantics. PostgreSQL uses its documented type encodings and constraint checks.
 
-- MySQL/MariaDB: JDBC transactions, key-based upsert/delete, preserve unsigned numeric range and decimal precision, explicit schema mapping; treat dialect differences separately.
-- PostgreSQL: JDBC transactions, ON CONFLICT with a matching unique constraint, keyed deletes, typed JSON/array/binary/time values.
-- MongoDB: BSON types and _id mapping; keyed replace/upsert, safe update patches and delete. Do not overwrite unmapped fields accidentally. No automatic ObjectId coercion without mapping rule.
-- ClickHouse: batch inserts via JDBC/client. Two modes: append-only event history (event ID carried, replay duplicates possible without separately validated deduplication), and current-state ReplacingMergeTree(version, is_deleted) with immutable unique ORDER BY identity. Stable persisted monotonic versions per logical key; deterministic retries and tombstones. Current-state queries require FINAL or equivalent latest-version logic; do not promise immediate physical deduplication. Reject unsupported mutable sort keys or implement explicit old-key tombstones. Never use a mutation for every row by default.
+MongoDB replaces the mapped document by `_id`, with majority writes and BSON reconstruction. Replacement semantics intentionally remove unmapped fields; mappings must describe the desired target document. It does not apply `updateLookup` results as if they were historical exact post-images.
 
-- Kafka: acknowledged producer sends, stable message key and event ID, explicit topics and serializers, TLS/SASL. Producer idempotence is required where supported; local journal replay can still duplicate messages. See KAFKA_CONNECTOR.md.
+ClickHouse targets accept the documented envelope schemas. History retains event IDs and may contain replay duplicates. Current-state mode requires exclusive ownership, an empty new target generation and `ReplacingMergeTree(version,is_deleted)` with `ORDER BY entity_key`, no partition expression and required fsync settings. Logical reads use `FINAL` and exclude tombstones.
 
-## Cross-database mapping
+Kafka publishes keyed CDC EX envelopes with `acks=all`, idempotent producer configuration and one in-flight request per connection. Process-level replay can still duplicate messages. Topic identity and destination partition count are pinned. TLS and supported SASL mechanisms are configured through a fixed option allowlist, not arbitrary JAAS text.
 
-Support explicit key and namespace mapping, scalar conversion with overflow/rounding policy, nested JSON/document strategy, timestamp/time-zone policy, null and missing values. Unknown or lossy mappings fail preflight unless user expressly accepts a defined conversion. Binary, decimal, BSON ObjectId, array, JSON and timezone semantics require round-trip tests. Do not assume all source/sink combinations are automatically compatible.
+## Adding a connector
 
-## References
+Implement the SPI with explicit prerequisites, stable physical identity, exact data encodings and a durable resume contract. Register it, add typed connection fields/capabilities to the UI, provide mapping fixtures and an isolated real-service acceptance script. Test capture→journal, journal→native checkpoint and target→sink watermark crash boundaries relevant to that connector. Add the exact fixture to V1 CI before advertising it.
 
-- https://debezium.io/documentation/reference/stable/connectors/mysql.html
-- https://debezium.io/documentation/reference/stable/connectors/mariadb.html
-- https://debezium.io/documentation/reference/stable/connectors/mongodb.html
-- https://debezium.io/documentation/reference/stable/connectors/postgresql.html
-- https://clickhouse.com/blog/clickhouse-postgresql-change-data-capture-cdc-part-1
+Detailed contracts: [MySQL](M1_RUNBOOK.md), [MariaDB](M2_MARIADB.md), [MongoDB](M3_MONGODB.md), [PostgreSQL](M4_POSTGRESQL.md), [ClickHouse](M5_CLICKHOUSE.md), [Kafka](M5K_KAFKA.md), [mappings](MAPPINGS.md).

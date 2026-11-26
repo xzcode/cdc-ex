@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Isolated MySQL / MariaDB acceptance, including cross-dialect directions.
 set -euo pipefail
-jar="$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-SNAPSHOT.jar}")"
+jar="$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")"
 work="$(mktemp -d)"
 src="cdc-ex-src-$$-$RANDOM"
 dst="cdc-ex-dst-$$-$RANDOM"
@@ -49,7 +49,17 @@ export CDC_RUN=true CDC_DATA_DIR="$work/state" CDC_REPLICATION_SERVER_ID=47123 C
 export CDC_SOURCE_TYPE="$st" CDC_SOURCE_HOST=127.0.0.1 CDC_SOURCE_PORT="$source_port" CDC_SOURCE_USER=root CDC_SOURCE_PASSWORD="$password" CDC_SOURCE_DATABASE=src CDC_SOURCE_TABLE=items CDC_SOURCE_SSL_MODE=REQUIRED
 export CDC_TARGET_TYPE="$tt" CDC_TARGET_HOST=127.0.0.1 CDC_TARGET_PORT="$target_port" CDC_TARGET_USER=root CDC_TARGET_PASSWORD="$password" CDC_TARGET_DATABASE=dst CDC_TARGET_TABLE=items CDC_TARGET_SSL_MODE=REQUIRED
 CDC_PREFLIGHT_ONLY=true java -jar "$jar"
-start() { java -jar "$jar" >>"$work/runner.log" 2>&1 & pid=$!; }
+start() {
+  local previous=0
+  if [[ -f "$work/runner.log" ]]; then previous=$(grep -c 'CDC EX task started:' "$work/runner.log" || true); fi
+  java -jar "$jar" >>"$work/runner.log" 2>&1 & pid=$!
+  for _ in $(seq 1 120); do
+    if (( $(grep -c 'CDC EX task started:' "$work/runner.log" || true) > previous )); then return; fi
+    kill -0 "$pid" 2>/dev/null || { echo 'Runner failed during preflight' >&2; return 1; }
+    sleep 0.25
+  done
+  echo 'Runner did not finish preflight' >&2; return 1
+}
 stop() { kill -TERM "$pid"; wait "$pid" || [[ $? == 143 ]]; pid=""; }
 assert_sql() {
   local query="$1" expected="$2" actual
@@ -83,4 +93,20 @@ sleep 2
 t_sql "RENAME TABLE dst.items_hold TO dst.items;"
 assert_sql "SELECT name FROM dst.items WHERE id=5" "retry"
 stop
-echo "$st -> $tt snapshot, DML, primary-key change, restart and retained sink retry passed."
+# Empty snapshots still need a durable native completion offset, before any DML.
+s_sql "CREATE TABLE src.empty_items $definition;"
+t_sql "CREATE TABLE dst.empty_items $definition;"
+export CDC_SOURCE_TABLE=empty_items CDC_TARGET_TABLE=empty_items CDC_DATA_DIR="$work/empty-state"
+start
+for _ in $(seq 1 120); do
+  [[ -s "$CDC_DATA_DIR/offsets.dat" ]] && break
+  kill -0 "$pid" 2>/dev/null || { echo 'Empty snapshot exited unexpectedly' >&2; exit 1; }
+  sleep 0.25
+done
+[[ -s "$CDC_DATA_DIR/offsets.dat" ]]
+stop
+start
+s_sql "INSERT INTO src.empty_items VALUES(1,'empty-resumed',1.25)"
+assert_sql "SELECT name FROM dst.empty_items WHERE id=1" 'empty-resumed'
+stop
+echo "$st -> $tt snapshot, empty snapshot, DML, primary-key change, restart and retained sink retry passed."

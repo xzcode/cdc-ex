@@ -41,6 +41,11 @@ public final class TaskManager implements AutoCloseable {
             if(r.id().equals(id)||r.sourceIdentity()==null||r.sinkIdentity()==null)continue;
             graph.computeIfAbsent(r.sourceIdentity(),k->new ArrayList<>()).add(r.sinkIdentity());
             if(active.containsKey(r.id())&&r.sinkIdentity().equals(target))throw new IllegalStateException("Another active task owns this destination");
+            Worker other=active.get(r.id());
+            if(other!=null&&source.contains(":innodb:")&&r.sourceIdentity().contains(":innodb:")&&source.substring(0,source.indexOf(":innodb:")).equals(r.sourceIdentity().substring(0,r.sourceIdentity().indexOf(":innodb:")))){
+                Worker owner=active.get(id);TaskSpec candidate=owner==null?specification(id):owner.spec;
+                if(Objects.equals(candidate.source().options().get("replicationServerId"),other.spec.source().options().get("replicationServerId")))throw new IllegalStateException("Another active task owns this replication client ID");
+            }
         }
         Set<String> seen=new HashSet<>();Deque<String> pending=new ArrayDeque<>();pending.add(target);
         while(!pending.isEmpty()){String at=pending.removeFirst();if(at.equals(source))throw new IllegalStateException("Task would create a replication cycle");if(seen.add(at))pending.addAll(graph.getOrDefault(at,List.of()));}
@@ -60,11 +65,24 @@ public final class TaskManager implements AutoCloseable {
         TaskDefinition d=CdcApplication.JSON.readValue(record.json(),TaskDefinition.class);
         Map<String,Object> view=new LinkedHashMap<>();view.put("id",d.id());view.put("name",d.name());view.put("sourceConnectionId",d.sourceConnectionId());view.put("sinkConnectionId",d.sinkConnectionId());view.put("snapshotMode",d.snapshotMode());view.put("mapping",d.mapping());
         view.put("state",record.state());view.put("error",record.error());view.put("updated",record.updated());
+        TaskSpec settings=d.resolve(connection(d.sourceConnectionId()),connection(d.sinkConnectionId()));
+        view.put("limits",Map.of("journalBytes",settings.journalBytes(),"journalEvents",settings.journalEvents(),"batchSize",settings.batchSize(),"maxFailures",settings.maxFailures()));
         Worker worker=active.get(d.id());TaskRuntime.Health health=completed.get(d.id());
         if(worker!=null&&worker.runner!=null){try{health=worker.runner.runtime().health();if(!worker.stopping.get())view.put("state",health.state());}catch(Exception ignored){}}
         view.put("health",health);return view;
     }
     public List<Map<String,Object>> views()throws Exception{List<Map<String,Object>> result=new ArrayList<>();for(var r:store.list("task"))result.add(view(r));return result;}
+    public synchronized void limits(String id,long bytes,long events,int batch,int failures)throws Exception{
+        if(active.containsKey(id))throw new IllegalStateException("Pause the task before changing resource limits");
+        TaskDefinition old=definition(id);TaskSpec current=specification(id);
+        var next=new TaskDefinition(id,old.name(),old.sourceConnectionId(),old.sinkConnectionId(),old.snapshotMode(),old.mapping(),
+            bytes==0?current.journalBytes():bytes,events==0?current.journalEvents():events,batch==0?current.batchSize():batch,failures==0?current.maxFailures():failures);
+        TaskSpec validated=next.resolve(current.source(),current.sink());Path journal=taskDirectory(id).resolve("journal.db");
+        if(Files.exists(journal))try(var j=new SqliteJournal(journal,current.journalBytes(),current.journalEvents())){
+            var stats=j.stats();if(validated.journalBytes()<stats.bytes()||validated.journalEvents()<stats.total())throw new IllegalArgumentException("New limits are below retained journal usage");
+        }
+        store.replace("task",id,next.name(),CdcApplication.JSON.writeValueAsString(next));store.audit("UPDATE_LIMITS",id,"OK");
+    }
     public synchronized Map<String,Object> compare(String id,boolean sourceQuiescent,int maxRows)throws Exception{
         if(!sourceQuiescent)throw new IllegalArgumentException("Stop source writes before a consistency comparison");
         if(active.containsKey(id))throw new IllegalStateException("Pause the task after draining its queue before comparison");
@@ -112,7 +130,7 @@ public final class TaskManager implements AutoCloseable {
                 validateSpec(id,spec);if(stopping.get())return;
                 runner=TaskRunner.open(spec,taskDirectory(id),registry);
                 if(stopping.get())runner.runtime().requestStop();store.state(id,"CAPTURING",null);runner.run();state=pause?"PAUSED":"STOPPED";
-            }catch(Exception e){state="BLOCKED";error="TASK_"+e.getClass().getSimpleName().toUpperCase(Locale.ROOT);}
+            }catch(Exception e){state="BLOCKED";var failure=Failure.describe(e);error=failure.code()+": "+failure.message();System.err.println("Task "+id+" blocked ["+failure.code()+"] at "+failure.location());}
             finally{
                 if(runner!=null){try{completed.put(id,runner.runtime().health());}catch(Exception ignored){}try{runner.close();}catch(Exception e){state="BLOCKED";error="STATE_CLOSE_FAILED";}}
                 try{store.state(id,stopping.get()&&error==null?(pause?"PAUSED":"STOPPED"):state,error);store.audit("TASK_FINISHED",id,error==null?state:error);}catch(Exception ignored){}

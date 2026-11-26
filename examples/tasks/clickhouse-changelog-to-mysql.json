@@ -1,0 +1,40 @@
+{
+  "id": "clickhouse-changelog-to-mysql",
+  "source": {
+    "type": "CLICKHOUSE",
+    "options": {
+      "host": "clickhouse.example.invalid",
+      "port": "8443",
+      "user": "cdc_reader",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "application",
+      "table": "order_changes",
+      "tls": "true",
+      "mode": "changelog",
+      "cursorGuarantee": "contiguous-visible",
+      "startSequence": "0"
+    }
+  },
+  "sink": {
+    "type": "MYSQL",
+    "options": {
+      "host": "mysql-target.example.invalid",
+      "port": "3306",
+      "user": "cdc_writer",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "analytics",
+      "table": "orders",
+      "sslMode": "VERIFY_IDENTITY"
+    }
+  },
+  "snapshotMode": "changelog",
+  "mapping": {
+    "rename": {},
+    "conversions": {},
+    "exclude": []
+  },
+  "journalBytes": 268435456,
+  "journalEvents": 1000000,
+  "batchSize": 128,
+  "maxFailures": 12
+}

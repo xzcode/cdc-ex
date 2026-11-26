@@ -49,9 +49,9 @@ public final class TaskRuntime {
                     if(sink instanceof SequencedSinkConnector sequenced)sequenced.applySequenced(batch.stream().map(e->new SequencedSinkConnector.Delivery(e.sequence(),e.event())).toList());
                     else sink.apply(batch.stream().map(SqliteJournal.Entry::event).toList());
                 } catch(Exception e) {
-                    state=State.RETRYING;errorCode="SINK_"+e.getClass().getSimpleName().toUpperCase(java.util.Locale.ROOT);retries=failures+1;
+                    state=State.RETRYING;errorCode=Failure.describe(e).code();retries=failures+1;
                     System.err.println("Sink batch failed; retained for retry ("+e.getClass().getSimpleName()+")");
-                    if(++failures>=maxFailures) throw new IllegalStateException("Sink blocked; pending events retained");
+                    if(++failures>=maxFailures) throw new IllegalStateException("Sink blocked; pending events retained",e);
                     Thread.sleep(Math.min(5000,250L*failures));
                     continue;
                 }

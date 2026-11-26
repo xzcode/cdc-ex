@@ -5,6 +5,7 @@ import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.WakeupException;
+import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -27,6 +28,10 @@ final class KafkaSource implements SourceConnector {
             Map<TopicPartition,Long> beginning=consumer.beginningOffsets(initialPartitions,Duration.ofSeconds(15));
             Map<TopicPartition,Long> end=consumer.endOffsets(initialPartitions,Duration.ofSeconds(15));
             if(context.fresh()) {
+                try{
+                    var group=admin.describeConsumerGroups(List.of(settings.groupId())).all().get(15,TimeUnit.SECONDS).get(settings.groupId());
+                    if(group!=null&&!group.members().isEmpty())throw new IllegalStateException("A new task cannot take over an active Kafka consumer group");
+                }catch(java.util.concurrent.ExecutionException e){if(!(e.getCause() instanceof GroupIdNotFoundException))throw e;}
                 var previousGroup=admin.listConsumerGroupOffsets(settings.groupId()).partitionsToOffsetAndMetadata().get(15,TimeUnit.SECONDS);
                 if(!previousGroup.isEmpty())throw new IllegalStateException("A new task requires a dedicated unused Kafka consumer group");
             }
@@ -97,7 +102,7 @@ final class KafkaSource implements SourceConnector {
     }
     private Properties consumerProperties(){
         Properties p=settings.consumerProperties(context.taskId()+"-source");
-        p.setProperty("group.instance.id","cdc-ex-"+EventCodec.digest(settings.groupId()).substring(0,24));
+        p.setProperty("group.instance.id","cdc-ex-"+EventCodec.digest(List.of(context.taskId(),settings.groupId())).substring(0,24));
         return p;
     }
     private static List<TopicPartition> partitions(KafkaMetadata metadata){

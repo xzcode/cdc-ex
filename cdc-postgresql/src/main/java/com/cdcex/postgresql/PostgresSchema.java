@@ -8,8 +8,15 @@ import java.util.*;
 record PostgresSchema(String identity, long tableOid, List<Column> columns, List<String> keys, String version) {
     record Column(String name,String type,boolean nullable,String collation) {}
     static PostgresSchema read(Connection c,PostgresConfig cfg,boolean target) throws SQLException {
+        return read(c,cfg,target,!target);
+    }
+    static PostgresSchema readForComparison(Connection c,PostgresConfig cfg) throws SQLException {
+        return read(c,cfg,false,false);
+    }
+    private static PostgresSchema read(Connection c,PostgresConfig cfg,boolean target,boolean requireFullReplicaIdentity) throws SQLException {
         String version=one(c,"SHOW server_version"),versionNumber=one(c,"SHOW server_version_num");
         int v=Integer.parseInt(versionNumber);if(v<160000||v>=180000) throw new IllegalStateException("PostgreSQL provider currently accepts major versions 16 and 17");
+        if(!"UTF8".equals(one(c,"SHOW server_encoding")))throw new IllegalStateException("PostgreSQL provider requires UTF8 server encoding");
         String system=one(c,"SELECT system_identifier::text FROM pg_control_system()");
         String databaseOid=one(c,"SELECT oid::text FROM pg_database WHERE datname=current_database()");
         long oid;
@@ -17,7 +24,7 @@ record PostgresSchema(String identity, long tableOid, List<Column> columns, List
             q.setString(1,cfg.schema());q.setString(2,cfg.table());try(var r=q.executeQuery()) {
                 if(!r.next()) throw new IllegalStateException("PostgreSQL table does not exist");oid=r.getLong(1);
                 if(!"r".equals(r.getString(2))||!"p".equals(r.getString(3))||r.getBoolean(6)) throw new IllegalStateException("Only permanent non-partitioned PostgreSQL tables are supported");
-                if(!target&&!"f".equals(r.getString(4))) throw new IllegalStateException("PostgreSQL source requires REPLICA IDENTITY FULL");
+                if(requireFullReplicaIdentity&&!"f".equals(r.getString(4))) throw new IllegalStateException("PostgreSQL source requires REPLICA IDENTITY FULL");
                 if(r.getBoolean(5)) throw new IllegalStateException("Row-level security is unsupported for replication");
             }
         }
@@ -29,17 +36,18 @@ record PostgresSchema(String identity, long tableOid, List<Column> columns, List
             }
         }
         List<Column> columns=new ArrayList<>();
-        try(var q=c.prepareStatement("SELECT a.attname,format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attgenerated,a.attidentity,co.collname FROM pg_attribute a LEFT JOIN pg_collation co ON co.oid=a.attcollation WHERE a.attrelid=? AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum")) {
+        try(var q=c.prepareStatement("SELECT a.attname,format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attgenerated,a.attidentity,co.collname,co.collisdeterministic FROM pg_attribute a LEFT JOIN pg_collation co ON co.oid=a.attcollation WHERE a.attrelid=? AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum")) {
             q.setLong(1,oid);try(var r=q.executeQuery()) {while(r.next()) {
                 String name=r.getString(1),type=r.getString(2);PostgresConfig.identifier(name);
                 if(!supported(type)) throw new IllegalStateException("Unsupported PostgreSQL type: "+type);
                 if(!r.getString(4).isEmpty()||!r.getString(5).isEmpty()) throw new IllegalStateException("Generated/identity PostgreSQL columns require an explicit mapping policy");
+                if(r.getString(6)!=null&&!r.getBoolean(7))throw new IllegalStateException("Non-deterministic PostgreSQL collations are unsupported");
                 columns.add(new Column(name,type,!r.getBoolean(3),r.getString(6)));
             }}
         }
         if(columns.isEmpty()) throw new IllegalStateException("Empty PostgreSQL table schema");
         List<String> keys=new ArrayList<>();
-        try(var q=c.prepareStatement("SELECT a.attname FROM pg_index i CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum,ord) JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum WHERE i.indrelid=? AND i.indisprimary ORDER BY k.ord")) {
+        try(var q=c.prepareStatement("SELECT a.attname FROM pg_index i CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum,ord) JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum WHERE i.indrelid=? AND i.indisprimary AND k.ord<=i.indnkeyatts ORDER BY k.ord")) {
             q.setLong(1,oid);try(var r=q.executeQuery()) {while(r.next())keys.add(r.getString(1));}
         }
         if(keys.isEmpty()) throw new IllegalStateException("PostgreSQL replication requires a primary key");
@@ -73,10 +81,10 @@ record PostgresSchema(String identity, long tableOid, List<Column> columns, List
                 if(!actual.equals(new HashSet<>(schema.columns.stream().map(Column::name).toList()))) throw new IllegalStateException("Publication column filtering is unsupported");
             }
         }
-        try(var q=c.prepareStatement("SELECT plugin,slot_type,database,active,temporary,wal_status,restart_lsn::text,confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name=?")) {
+        try(var q=c.prepareStatement("SELECT plugin,slot_type,database,active,temporary,wal_status,restart_lsn::text,confirmed_flush_lsn::text,two_phase FROM pg_replication_slots WHERE slot_name=?")) {
             q.setString(1,cfg.slot());try(var r=q.executeQuery()) {
                 if(!r.next()) throw new IllegalStateException("Dedicated pgoutput replication slot must already exist; missing slots are never recreated automatically");
-                if(!"pgoutput".equals(r.getString(1))||!"logical".equals(r.getString(2))||!cfg.database().equals(r.getString(3))||r.getBoolean(5)) throw new IllegalStateException("Incompatible PostgreSQL replication slot");
+                if(!"pgoutput".equals(r.getString(1))||!"logical".equals(r.getString(2))||!cfg.database().equals(r.getString(3))||r.getBoolean(5)||r.getBoolean(9)) throw new IllegalStateException("Incompatible PostgreSQL replication slot");
                 if(mustBeInactive&&r.getBoolean(4)) throw new IllegalStateException("PostgreSQL replication slot is already in use");
                 if("lost".equals(r.getString(6))||r.getString(7)==null) throw new IllegalStateException("PostgreSQL retained WAL was lost; explicit recovery is required");
                 return new Slot(r.getString(7),r.getString(8));
@@ -85,7 +93,7 @@ record PostgresSchema(String identity, long tableOid, List<Column> columns, List
     }
     ConnectorProvider.Inspection inspection() {
         Map<String,String> fields=new LinkedHashMap<>();for(var c:columns)fields.put(c.name(),c.type());
-        return new ConnectorProvider.Inspection(identity,fields,keys,Map.of("version",version,"tableOid",tableOid,"replicaIdentity","FULL","typePolicy","strict","schema",EventCodec.digest(List.of(columns,keys))));
+        return new ConnectorProvider.Inspection(identity,fields,keys,Map.of("version",version,"tableOid",tableOid,"replicaIdentityPolicy","FULL for sources","typePolicy","strict","schema",EventCodec.digest(List.of(columns,keys))));
     }
     void requireSame(PostgresSchema actual) {
         if(!identity.equals(actual.identity)||!columns.equals(actual.columns)||!keys.equals(actual.keys)) throw new IllegalStateException("PostgreSQL identity or schema changed");

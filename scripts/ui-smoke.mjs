@@ -4,7 +4,6 @@
 import { createRequire } from 'node:module'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 const require = createRequire(new URL('../cdc-web/package.json', import.meta.url))
 const { chromium, expect } = require('@playwright/test')
 
@@ -16,9 +15,12 @@ const user = required('CDC_UI_DB_USER')
 const password = required('CDC_UI_DB_PASSWORD')
 const sourceDatabase = process.env.CDC_UI_SOURCE_DATABASE || 'ui_src'
 const targetDatabase = process.env.CDC_UI_TARGET_DATABASE || 'ui_dst'
+const secondTargetDatabase = process.env.CDC_UI_SECOND_TARGET_DATABASE
 const prefix = `ui-${Date.now()}`
 const sourceId = `${prefix}-source`, sinkId = `${prefix}-sink`, taskId = `${prefix}-task`
-const screenshots = process.env.CDC_UI_SCREENSHOT_DIR || join(tmpdir(), 'cdc-ex-ui-smoke')
+const secondSourceId = `${prefix}-source2`, secondSinkId = `${prefix}-sink2`, secondTaskId = `${prefix}-task2`
+const replicationId = Number(process.env.CDC_UI_REPLICATION_ID || '47654')
+const screenshots = process.env.CDC_UI_ARTIFACT_DIR || process.env.CDC_UI_SCREENSHOT_DIR || join(process.cwd(), 'ui-artifacts')
 mkdirSync(screenshots, { recursive: true })
 const executablePath = process.env.CDC_UI_CHROMIUM || (existsSync('/usr/lib/chromium/chromium') ? '/usr/lib/chromium/chromium' : undefined)
 const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
@@ -38,18 +40,25 @@ async function api(path) {
   if (!response.ok) throw new Error(`UI fixture API returned HTTP ${response.status}`)
   return response.json()
 }
-async function task() { return (await api('/tasks')).find(item => item.id === taskId) }
+async function task(id = taskId) { return (await api('/tasks')).find(item => item.id === id) }
+function taskRow(id) { return page.locator('.task-table tbody tr').filter({ has: page.getByText(id, { exact: true }) }) }
 async function refresh() {
   if (await page.getByRole('dialog').isVisible()) {
     await page.waitForResponse(response => response.url().endsWith('/api/tasks') && response.request().method() === 'GET', { timeout: 20000 })
   } else await page.getByRole('button', { name: 'Refresh', exact: true }).click()
 }
-async function waitState(accepted) {
-  await expect.poll(async () => (await task())?.state, { timeout: 90000, intervals: [500, 1000, 2000] }).toMatch(new RegExp(`^(${accepted.join('|')})$`))
+async function waitState(accepted, id = taskId) {
+  await expect.poll(async () => (await task(id))?.state, { timeout: 90000, intervals: [500, 1000, 2000] }).toMatch(new RegExp(`^(${accepted.join('|')})$`))
   await refresh()
 }
+async function waitDelivered(id = taskId) {
+  await expect.poll(async () => {
+    const data = await task(id); const journal = data?.health?.journal
+    return !!journal && journal.total >= 1 && journal.pending === 0
+  }, { timeout: 120000, intervals: [500, 1000, 2000] }).toBe(true)
+}
 async function closeDialog() { await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).first().click() }
-async function addConnection(id, name, database, source) {
+async function addConnection(id, name, database, source, serverId = replicationId) {
   await page.getByRole('button', { name: 'Add connection', exact: true }).first().click()
   const modal = page.getByRole('dialog')
   await modal.getByLabel('Name', { exact: true }).fill(name)
@@ -62,7 +71,7 @@ async function addConnection(id, name, database, source) {
   await modal.getByLabel('Username', { exact: true }).fill(user)
   await modal.getByLabel('Password', { exact: true }).fill(password)
   await modal.getByLabel('TLS mode', { exact: true }).selectOption(process.env.CDC_UI_DB_SSL_MODE || 'REQUIRED')
-  if (source) await modal.getByLabel('Replication client ID (source)', { exact: true }).fill(process.env.CDC_UI_REPLICATION_ID || '47654')
+  if (source) await modal.getByLabel('Replication client ID (source)', { exact: true }).fill(String(serverId))
   await modal.getByRole('button', { name: 'Save connection', exact: true }).click()
   await expect(modal).not.toBeVisible({ timeout: 30000 })
   const card = page.locator('.connection-card').filter({ has: page.getByRole('heading', { name, exact: true }) })
@@ -70,6 +79,24 @@ async function addConnection(id, name, database, source) {
   await card.getByRole('button', { name: source ? 'Test as source' : 'Test as destination', exact: true }).click()
   await expect(page.getByRole('dialog').getByText('Connection preflight passed', { exact: true })).toBeVisible({ timeout: 30000 })
   await closeDialog()
+}
+async function createTask(id, name, source, sink, screenshot = false) {
+  await page.getByRole('button', { name: 'New task', exact: true }).first().click()
+  const modal = page.getByRole('dialog')
+  await modal.getByLabel('Name', { exact: true }).fill(name)
+  await modal.getByLabel('Identifier', { exact: true }).fill(id)
+  await modal.getByLabel('Source', { exact: true }).selectOption(source)
+  await modal.getByLabel('Destination', { exact: true }).selectOption(sink)
+  await modal.getByLabel('Capture mode', { exact: true }).selectOption('initial')
+  await modal.getByRole('button', { name: 'Continue', exact: true }).click()
+  await modal.getByRole('button', { name: 'Discover fields', exact: true }).click()
+  await expect(modal.getByLabel('Source field 1', { exact: true })).toHaveValue('id', { timeout: 30000 })
+  await expect(modal.getByLabel('Include id', { exact: true })).toBeDisabled()
+  if (screenshot) await page.screenshot({ path: join(screenshots, 'mapping.png'), fullPage: true })
+  await modal.getByRole('button', { name: 'Continue', exact: true }).click()
+  await modal.getByRole('button', { name: 'Create task', exact: true }).click()
+  await expect(modal).not.toBeVisible({ timeout: 30000 })
+  await expect(taskRow(id)).toBeVisible()
 }
 try {
   await page.goto(base, { waitUntil: 'networkidle' })
@@ -81,6 +108,10 @@ try {
   await page.getByRole('navigation').getByRole('button', { name: 'Connections', exact: true }).click()
   await addConnection(sourceId, 'UI acceptance source', sourceDatabase, true)
   await addConnection(sinkId, 'UI acceptance destination', targetDatabase, false)
+  if (secondTargetDatabase) {
+    await addConnection(secondSourceId, 'UI concurrent source', sourceDatabase, true, replicationId + 1)
+    await addConnection(secondSinkId, 'UI concurrent destination', secondTargetDatabase, false)
+  }
   const listed = await api('/connections')
   const persisted = listed.filter(item => [sourceId, sinkId].includes(item.id))
   expect(persisted).toHaveLength(2)
@@ -93,45 +124,42 @@ try {
   await page.getByRole('dialog').getByRole('button', { name: 'Save connection', exact: true }).click()
   await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 30000 })
   await page.getByRole('navigation').getByRole('button', { name: /^Sync tasks/ }).click()
-  await page.getByRole('button', { name: 'New task', exact: true }).first().click()
-  let modal = page.getByRole('dialog')
-  await modal.getByLabel('Name', { exact: true }).fill('UI acceptance pipeline')
-  await modal.getByLabel('Identifier', { exact: true }).fill(taskId)
-  await modal.getByLabel('Source', { exact: true }).selectOption(sourceId)
-  await modal.getByLabel('Destination', { exact: true }).selectOption(sinkId)
-  await modal.getByLabel('Capture mode', { exact: true }).selectOption('initial')
-  await modal.getByRole('button', { name: 'Continue', exact: true }).click()
-  await modal.getByRole('button', { name: 'Discover fields', exact: true }).click()
-  await expect(modal.getByLabel('Source field 1', { exact: true })).toHaveValue('id', { timeout: 30000 })
-  await expect(modal.getByLabel('Include id', { exact: true })).toBeDisabled()
-  await page.screenshot({ path: join(screenshots, 'mapping.png'), fullPage: true })
-  await modal.getByRole('button', { name: 'Continue', exact: true }).click()
-  await modal.getByRole('button', { name: 'Create task', exact: true }).click()
-  await expect(modal).not.toBeVisible({ timeout: 30000 })
-  const row = page.locator('.task-table tbody tr').filter({ hasText: taskId })
+  await createTask(taskId, 'UI acceptance pipeline', sourceId, sinkId, true)
+  if (secondTargetDatabase) await createTask(secondTaskId, 'UI concurrent pipeline', secondSourceId, secondSinkId)
+  const row = taskRow(taskId)
   await expect(row).toBeVisible()
   await row.getByRole('button', { name: 'Details UI acceptance pipeline', exact: true }).click()
-  modal = page.getByRole('dialog')
+  const modal = page.getByRole('dialog')
   await modal.getByRole('button', { name: 'Validate', exact: true }).click()
   await expect(modal.getByRole('heading', { name: 'Source schema', exact: true })).toBeVisible({ timeout: 30000 })
   await modal.getByRole('button', { name: 'Start', exact: true }).click()
   await waitState(['CAPTURING', 'STREAMING', 'RUNNING'])
-  await expect.poll(async () => {
-    const data = await task(); const journal = data?.health?.journal
-    return !!journal && journal.total >= 1 && journal.pending === 0
-  }, { timeout: 120000, intervals: [500, 1000, 2000] }).toBe(true)
+  await waitDelivered()
   await refresh()
   await closeDialog()
+  if (secondTargetDatabase) {
+    await taskRow(secondTaskId).getByRole('button', { name: 'Start UI concurrent pipeline', exact: true }).click()
+    await waitState(['CAPTURING', 'STREAMING', 'RUNNING'], secondTaskId)
+    await waitDelivered(secondTaskId)
+    expect(['CAPTURING', 'STREAMING', 'RUNNING']).toContain((await task()).state)
+    await refresh()
+    await page.screenshot({ path: join(screenshots, 'concurrent-tasks.png'), fullPage: true })
+  }
   await page.getByRole('navigation').getByRole('button', { name: 'Overview', exact: true }).click()
   await page.screenshot({ path: join(screenshots, 'overview.png'), fullPage: true })
   await page.getByRole('navigation').getByRole('button', { name: /^Sync tasks/ }).click()
-  await page.locator('.task-table tbody tr').filter({ hasText: taskId }).getByRole('button', { name: 'Pause UI acceptance pipeline', exact: true }).click()
+  await taskRow(taskId).getByRole('button', { name: 'Pause UI acceptance pipeline', exact: true }).click()
   await waitState(['PAUSED'])
-  await page.locator('.task-table tbody tr').filter({ hasText: taskId }).getByRole('button', { name: 'Start UI acceptance pipeline', exact: true }).click()
+  await taskRow(taskId).getByRole('button', { name: 'Start UI acceptance pipeline', exact: true }).click()
   await waitState(['CAPTURING', 'STREAMING', 'RUNNING'])
-  await page.locator('.task-table tbody tr').filter({ hasText: taskId }).getByRole('button', { name: 'Pause UI acceptance pipeline', exact: true }).click()
+  await taskRow(taskId).getByRole('button', { name: 'Pause UI acceptance pipeline', exact: true }).click()
   await waitState(['PAUSED'])
-  await page.locator('.task-table tbody tr').filter({ hasText: taskId }).getByRole('button', { name: 'Details UI acceptance pipeline', exact: true }).click()
+  if (secondTargetDatabase) {
+    expect(['CAPTURING', 'STREAMING', 'RUNNING']).toContain((await task(secondTaskId)).state)
+    await taskRow(secondTaskId).getByRole('button', { name: 'Pause UI concurrent pipeline', exact: true }).click()
+    await waitState(['PAUSED'], secondTaskId)
+  }
+  await taskRow(taskId).getByRole('button', { name: 'Details UI acceptance pipeline', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Compare data', exact: true }).click()
   await page.getByRole('dialog').getByLabel('Source writes are stopped and the task has finished delivering.', { exact: true }).check()
   const comparisonResponse = page.waitForResponse(response => response.url().endsWith(`/api/tasks/${taskId}/compare`) && response.request().method() === 'POST')
@@ -155,5 +183,5 @@ try {
   expect(html).not.toContain(password)
   expect(html).not.toContain(token)
   expect(errors).toEqual([])
-  console.log('Real UI acceptance passed: authenticated login, protected connections, preflight, field wizard, MySQL snapshot, pause/resume, exact comparison, EN/ZH, mobile layout and no browser errors.')
+  console.log(`Real UI acceptance passed: authenticated login, protected connections, preflight, field wizard, MySQL snapshot, pause/resume${secondTargetDatabase ? ', concurrent tasks with separate replication identities' : ''}, exact comparison, EN/ZH, mobile layout and no browser errors.`)
 } finally { await browser.close() }

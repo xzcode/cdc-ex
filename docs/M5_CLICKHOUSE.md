@@ -107,6 +107,8 @@ The producer owns the correctness of this log. Sequence values must be unique, c
 
 A sequence gap, invalid operation, malformed JSON, missing image, changed schema or changed table UUID blocks capture without advancing the cursor. If a gap is a temporarily delayed record, restoring the missing retained record permits a deliberate retry. If retention has permanently removed it, the operator must reconcile a new generation; no automatic jump to the latest position is offered.
 
+All limited source modes persist their phase, generation, schema and cursor in a versioned SHA-256-checksummed checkpoint. The file and parent directory are forced around atomic replacement. A valid-JSON bit flip in a cursor is rejected instead of skipping records. Missing, damaged or legacy unverified checkpoints require explicit reconciliation; the connector does not recreate their positions automatically.
+
 This captures an application-owned change log. It does not infer the source table's changes from ClickHouse mutations.
 
 ## Validation and acceptance fixture
@@ -115,7 +117,9 @@ This captures an application-owned change log. It does not infer the source tabl
 bash scripts/clickhouse-smoke.sh
 ```
 
-The isolated fixture bounds the ClickHouse container to 768 MiB and one CPU, and configures small background pools. It exercises versioned updates, tombstones, key changes, restart, hard process death, target unavailability with retained retry, schema-drift blocking, changelog gap detection and repair, 130 equal-leading-cursor records spanning a batch boundary, resume with additional ties, finite snapshot completion/restart, unsigned integer precision, and append event history. Unit tests additionally check stable versions on replay, version overflow, exact decimal decoding, typed cursor parameterization, malformed changelog rejection and HTTP 200 late-error handling.
+The isolated fixture bounds the ClickHouse container to 768 MiB and one CPU, and configures small background pools. It exercises versioned updates, tombstones, key changes, restart, hard process death, target unavailability with retained retry, schema-drift blocking, changelog gap detection and repair, 130 equal-leading-cursor records spanning a batch boundary, resume with additional ties and escaped string cursor values, finite snapshot completion/restart, unsigned integer precision, and append event history. Unit tests additionally check stable versions on replay, version overflow, exact decimal decoding, typed cursor parameterization, checkpoint corruption, malformed changelog rejection and HTTP 200 late-error handling.
+
+`CDC_CROSS_SUITE=clickhouse bash scripts/cross-smoke.sh` separately exercises MySQL snapshot/binlog events delivered into the ClickHouse current-state envelope. The acceptance matrix records whether this heterogeneous fixture actually passed.
 
 The initial provider does not certify replicated/distributed engines, ClickHouse Cloud SharedMergeTree, external writers, materialized-view side effects, cleanup policies, arbitrary source types, or every heterogeneous pairing. Quiescent bounded comparisons are capped at 100,000 rows and 32 MiB of serialized payload; larger validations require a separate partitioned design.
 

@@ -1,0 +1,16 @@
+{
+  "id": "mariadb-orders-target",
+  "name": "MariaDB orders target",
+  "endpoint": {
+    "type": "MARIADB",
+    "options": {
+      "host": "mariadb.example.invalid",
+      "port": "3306",
+      "user": "cdc_writer",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "analytics",
+      "table": "orders",
+      "sslMode": "VERIFY_IDENTITY"
+    }
+  }
+}

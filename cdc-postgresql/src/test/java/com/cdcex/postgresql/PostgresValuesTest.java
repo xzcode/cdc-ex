@@ -41,6 +41,14 @@ class PostgresValuesTest {
         assertEquals(new BigInteger("18446744073709551615"),PostgresSource.lsn("FFFFFFFF/FFFFFFFF"));
         assertEquals(PostgresSource.unsigned(-1),PostgresSource.lsn("FFFFFFFF/FFFFFFFF"));
     }
+    @Test void retainedWalDoesNotAuthorizeAnExternallyAdvancedSlot() {
+        List<Map<String,Object>> offset=List.of(Map.of("lsn",512L,"lsn_proc",512L,"lsn_commit",480L));
+        assertDoesNotThrow(()->PostgresSource.requireRetained(new PostgresSchema.Slot("0/100","0/1E0"),offset));
+        assertDoesNotThrow(()->PostgresSource.requireRetained(new PostgresSchema.Slot("0/100","0/200"),offset));
+        assertThrows(IllegalStateException.class,()->PostgresSource.requireRetained(new PostgresSchema.Slot("0/100","0/201"),offset));
+        assertThrows(IllegalStateException.class,()->PostgresSource.requireRetained(new PostgresSchema.Slot("0/201","0/201"),offset));
+        assertThrows(IllegalStateException.class,()->PostgresSource.requireRetained(new PostgresSchema.Slot("0/100",null),offset));
+    }
     @Test void identifiersAndTlsRequireExplicitSafeConfiguration() {
         Map<String,String> options=new HashMap<>(Map.of("host","localhost","database","postgres","table","items","user","u","password","p","sslMode","disable"));
         assertThrows(IllegalArgumentException.class,()->new PostgresConfig(new Endpoint("POSTGRESQL",options)));

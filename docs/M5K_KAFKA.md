@@ -2,7 +2,7 @@
 
 Kafka is an optional endpoint. Direct database synchronization does not require a broker. The module implements the `ConnectorProvider` management SPI and uses the Kafka Java client version resolved by the root dependency management.
 
-The Kafka-specific acceptance runs on 2026-11-26 used **Kafka client 3.9.1 against a real Kafka 4.0.0 KRaft broker**. Four broker lifecycle/failure cases and six TLS/SASL transport cases passed, in addition to ten unit tests. The database-to-Kafka-to-database application pipeline is a separate fixture; see the release acceptance report for its result and build identifier.
+The Kafka-specific acceptance runs on 2026-11-26 used **Kafka client 3.9.1 against a real Kafka 4.0.0 KRaft broker**. Five broker lifecycle/failure cases and six TLS/SASL transport cases passed. Eleven unit tests additionally cover event fidelity, checkpoint integrity and configuration security. The database-to-Kafka-to-database application pipeline is a separate fixture; see the release acceptance report for its result and build identifier.
 
 ## Implemented behavior
 
@@ -85,7 +85,7 @@ For a source batch, the ordering is:
 
 1. Decode and validate every record in the poll batch.
 2. Commit the complete normalized batch to the durable local journal.
-3. Persist `kafka-source.json` using a forced file write, atomic rename and parent-directory force.
+3. Persist the checksummed `kafka-source.json` using a forced file write, atomic rename and parent-directory force.
 4. Commit the **next** contiguous offset for each owned partition to Kafka.
 
 Local offsets are authoritative. A crash between steps 2 and 3 replays records that the journal can deduplicate. A crash after step 3 but before step 4 resumes from local state, even when the group offset is behind. A destination failure does not change this relationship: journal data remains until target application and sink acknowledgment finish.
@@ -107,13 +107,13 @@ MySQL source -> Kafka topic A -> Kafka topic B -> MySQL target
 The script checks snapshot, insert/update/delete, primary-key change, consumer restart, destination failure/retry, broker outage/recovery and an invalid envelope that must leave source offsets unchanged. The fixtures use exact `apache/kafka:4.0.0` and `mysql:8.4.13` image tags; the script also prints the versions actually running. It removes only containers/volumes created by the fixture.
 
 ```bash
-bash scripts/kafka-smoke.sh cdc-server/target/cdc-server-0.1.0-SNAPSHOT.jar
+bash scripts/kafka-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.1.jar
 
 # Include the broker-specific Java integration suite while the disposable broker is alive:
 CDC_TEST_KAFKA_BROKER_SUITE=true bash scripts/kafka-smoke.sh
 ```
 
-`KafkaBrokerTest` is skipped unless `CDC_TEST_KAFKA_BOOTSTRAP` names an explicitly authorized disposable plaintext broker. Each test creates and removes uniquely named topics/groups. It checks actual broker source/sink round trips, checkpoint recovery after a rejected journal batch, partition addition and reassignment, retained-offset expiry, topic recreation, invalid messages and rejection of a second group member. Unit tests separately cover precise event serialization, stable transport identity, key changes, checkpoint regression and secure option enforcement.
+`KafkaBrokerTest` is skipped unless `CDC_TEST_KAFKA_BOOTSTRAP` names an explicitly authorized disposable plaintext broker. Each test creates and removes uniquely named topics/groups. It checks actual broker source/sink round trips, checkpoint recovery after a rejected journal batch, partition addition and reassignment, retained-offset expiry, topic recreation, invalid messages, rejection of a second group member, and prevention of a new task fencing an idle owner before its first committed offset. Unit tests separately cover precise event serialization, stable transport identity, key changes, checkpoint regression, valid-JSON checkpoint corruption and secure option enforcement.
 
 The separate transport fixture requires a Java 21 JDK, Maven, Python 3 and OpenSSL. It resolves the official Kafka 4.0.0 broker runtime artifacts from Maven, generates short-lived private test certificates, binds every broker listener to loopback, and removes its broker state, keys and certificates afterwards:
 

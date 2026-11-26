@@ -2,6 +2,7 @@ package com.cdcex.postgresql;
 
 import com.cdcex.core.*;
 import com.cdcex.debezium.AtomicOffsetStore;
+import com.cdcex.debezium.DebeziumMetadata;
 import io.debezium.embedded.Connect;
 import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.RecordChangeEvent;
@@ -38,16 +39,25 @@ final class PostgresSource implements SourceConnector {
                 if(!Files.isRegularFile(identity)||!Files.readString(identity).equals(fingerprint))throw new IllegalStateException("PostgreSQL source identity or schema changed");
                 if(!Files.isRegularFile(offsets))throw new IllegalStateException("PostgreSQL durable offsets missing; refusing to reset");
                 if(!AtomicOffsetStore.snapshotComplete(offsets))throw new IllegalStateException("Interrupted PostgreSQL snapshot requires explicit new generation and reconciliation");
-                BigInteger maximum=BigInteger.ZERO;
-                for(var offset:AtomicOffsetStore.readOffsets(offsets)) for(String key:List.of("lsn","lsn_proc","lsn_commit")) {
-                    Object value=offset.get(key);if(value instanceof Number n)maximum=maximum.max(unsigned(n.longValue()));
-                }
-                if(maximum.signum()==0||lsn(slot.restartLsn()).compareTo(maximum)>0)throw new IllegalStateException("PostgreSQL WAL checkpoint is no longer retained; refusing to skip changes");
+                requireRetained(slot,AtomicOffsetStore.readOffsets(offsets));
             }
         }
     }
     static BigInteger unsigned(long value) {return new BigInteger(Long.toUnsignedString(value));}
     static BigInteger lsn(String text) {String[] parts=text.split("/",-1);if(parts.length!=2)throw new IllegalArgumentException("Invalid PostgreSQL LSN");return new BigInteger(parts[0],16).shiftLeft(32).add(new BigInteger(parts[1],16));}
+    static void requireRetained(PostgresSchema.Slot slot,List<Map<String,Object>> offsets) {
+        if(offsets.size()!=1)throw new IllegalStateException("Unexpected PostgreSQL checkpoint partitions");
+        BigInteger maximum=BigInteger.ZERO;
+        for(String key:List.of("lsn","lsn_proc","lsn_commit")) {
+            Object value=offsets.getFirst().get(key);if(value instanceof Number n)maximum=maximum.max(unsigned(n.longValue()));
+        }
+        if(maximum.signum()==0||slot.restartLsn()==null||lsn(slot.restartLsn()).compareTo(maximum)>0)
+            throw new IllegalStateException("PostgreSQL WAL checkpoint is no longer retained; refusing to skip changes");
+        // PG 15+ starts at max(requested LSN, confirmed_flush_lsn). Retained older WAL
+        // alone therefore does not prove that this slot can replay our checkpoint.
+        if(slot.confirmedLsn()==null||lsn(slot.confirmedLsn()).compareTo(maximum)>0)
+            throw new IllegalStateException("PostgreSQL slot advanced beyond the durable checkpoint; refusing to skip changes");
+    }
     private Map<String,Object> row(Object value) {
         if(value==null)return null;
         if(!(value instanceof Struct struct))throw new IllegalStateException("Expected PostgreSQL row structure");
@@ -56,6 +66,7 @@ final class PostgresSource implements SourceConnector {
         return result;
     }
     ChangeEvent normalize(SourceRecord record) {
+        if(DebeziumMetadata.isHeartbeat(record,"cdc-ex-pg-"+context.taskId()))return null;
         if(record.value()==null)return null;
         if(!(record.value() instanceof Struct envelope)||envelope.schema().field("source")==null)throw new IllegalStateException("Unexpected PostgreSQL capture record");
         Struct source=envelope.getStruct("source");
@@ -91,10 +102,13 @@ final class PostgresSource implements SourceConnector {
         p.setProperty("publication.name",cfg.publication());p.setProperty("publication.autocreate.mode","disabled");
         p.setProperty("table.include.list",Pattern.quote(cfg.schema()+"."+cfg.table()));
         p.setProperty("offset.storage",AtomicOffsetStore.class.getName());p.setProperty("offset.storage.file.filename",context.directory().resolve("pg-offsets.json").toString());p.setProperty("offset.flush.interval.ms","0");
+        p.setProperty("heartbeat.interval.ms","1000");
         p.setProperty("snapshot.mode",context.snapshotMode());p.setProperty("snapshot.isolation.mode","serializable");
         p.setProperty("decimal.handling.mode","precise");p.setProperty("time.precision.mode","adaptive_time_microseconds");p.setProperty("binary.handling.mode","bytes");
         p.setProperty("unavailable.value.placeholder",PostgresValues.UNAVAILABLE);p.setProperty("tombstones.on.delete","false");p.setProperty("include.schema.changes","false");
+        p.setProperty("skipped.operations","none");p.setProperty("flush.lsn.source","true");
         p.setProperty("max.batch.size","256");p.setProperty("max.queue.size","1024");p.setProperty("record.processing.order","ORDERED");p.setProperty("record.processing.threads","1");
+        p.setProperty("max.queue.size.in.bytes","33554432");p.setProperty("snapshot.fetch.size","32");
         p.setProperty("event.processing.failure.handling.mode","fail");p.setProperty("slot.max.retries","2");p.setProperty("slot.retry.delay.ms","1000");
         return p;
     }

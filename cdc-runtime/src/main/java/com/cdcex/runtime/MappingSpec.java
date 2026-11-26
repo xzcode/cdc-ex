@@ -67,6 +67,7 @@ public record MappingSpec(Map<String,String> rename, Map<String,String> conversi
     private static int textWidth(String value){var m=java.util.regex.Pattern.compile("(?i)(?:var)?char(?:acter varying)?\\((\\d+)\\)").matcher(value);return m.find()?Integer.parseInt(m.group(1)):Integer.MAX_VALUE;}
     public static Object convert(Object input,String conversion){
         if(input==null||conversion==null)return input;
+        if(conversion.equals("JSON"))return EventCodec.json(input);
         Object value=bsonScalar(input);
         return switch(conversion){
             case "STRING" -> {if(value instanceof Map||value instanceof List)throw new IllegalArgumentException("Object-to-text requires JSON conversion");yield value.toString();}
@@ -74,7 +75,6 @@ public record MappingSpec(Map<String,String> rename, Map<String,String> conversi
             case "INTEGER" -> number(value).toBigIntegerExact().intValueExact();
             case "DECIMAL" -> number(value);
             case "BOOLEAN" -> {if(value instanceof Boolean)yield value;if("true".equals(value)||"false".equals(value))yield Boolean.parseBoolean((String)value);throw new IllegalArgumentException("Boolean conversion accepts true or false only");}
-            case "JSON" -> EventCodec.json(input);
             case "BSON_INT64" -> Map.of("$numberLong",Long.toString(number(value).toBigIntegerExact().longValueExact()));
             case "BSON_DECIMAL" -> Map.of("$numberDecimal",number(value).toPlainString());
             case "BSON_OBJECT_ID" -> {String s=value.toString();if(!s.matches("[0-9a-fA-F]{24}"))throw new IllegalArgumentException("ObjectId requires 24 hexadecimal characters");yield Map.of("$oid",s.toLowerCase(Locale.ROOT));}
@@ -91,7 +91,7 @@ public record MappingSpec(Map<String,String> rename, Map<String,String> conversi
             if(m.containsKey("$numberLong"))return new BigInteger(m.get("$numberLong").toString());
             if(m.containsKey("$numberDecimal"))return new BigDecimal(m.get("$numberDecimal").toString());
             if(m.containsKey("$oid"))return m.get("$oid").toString();
-            if(m.containsKey("$date")){Object date=bsonScalar(m.get("$date"));return date instanceof Number n?Instant.ofEpochMilli(n.longValue()).toString():date;}
+            if(m.containsKey("$date")){Object date=bsonScalar(m.get("$date"));return date instanceof Number n?Instant.ofEpochMilli(number(n).toBigIntegerExact().longValueExact()).toString():date;}
         }return value;
     }
 }

@@ -63,10 +63,27 @@ public final class MongoProvider implements ConnectorProvider {
             throw new IllegalStateException("Capped and time-series collections are not supported");
         return meta;
     }
-    static String identity(Endpoint endpoint,BsonDocument meta) {
+    static String identity(MongoClient client,Endpoint endpoint,BsonDocument meta) {
+        BsonDocument configuration;
+        try {
+            configuration=client.getDatabase("admin").runCommand(
+                new BsonDocument("replSetGetConfig",new BsonInt32(1)),BsonDocument.class).getDocument("config");
+        } catch(MongoCommandException e) {
+            if(e.getErrorCode()==13)throw new IllegalStateException(
+                "MongoDB identity verification requires replSetGetConfig on the cluster; grant clusterMonitor or a custom read-only privilege");
+            throw e;
+        }
+        return identity(endpoint,meta,configuration);
+    }
+    static String identity(Endpoint endpoint,BsonDocument meta,BsonDocument configuration) {
         BsonValue uuid=meta.getDocument("info").get("uuid");
         if(uuid==null)throw new IllegalStateException("MongoDB collection UUID unavailable");
-        return "mongodb:"+EventCodec.digest(List.of(endpoint.require("database"),endpoint.require("table"),
+        BsonValue replicaSetId=configuration.getDocument("settings",new BsonDocument()).get("replicaSetId");
+        BsonValue setName=configuration.get("_id");
+        if(replicaSetId==null || !replicaSetId.isObjectId() || setName==null || !setName.isString())
+            throw new IllegalStateException("MongoDB immutable replica-set identity unavailable");
+        return "mongodb:"+EventCodec.digest(List.of("replica-set-and-collection-v2",setName.asString().getValue(),
+            replicaSetId.asObjectId().getValue().toHexString(),endpoint.require("database"),endpoint.require("table"),
             new BsonDocument("uuid",uuid).toJson(BsonValues.CANONICAL)));
     }
     static String schema(BsonDocument meta) {
@@ -94,7 +111,7 @@ public final class MongoProvider implements ConnectorProvider {
                     throw new IllegalStateException("Secondary unique indexes are outside the MongoDB sink contract");
         }
         String version=client.getDatabase("admin").runCommand(new BsonDocument("buildInfo",new BsonInt32(1)),BsonDocument.class).getString("version").getValue();
-        return new Inspection(identity(endpoint,meta),Map.of("_id","BSON","*","BSON"),List.of("_id"),
+        return new Inspection(identity(client,endpoint,meta),Map.of("_id","BSON","*","BSON"),List.of("_id"),
             Map.of("version",version,"topology","replica-set","schemaOptions",schema(meta),
                 "empty",collection.find().limit(1).first()==null,"encoding","canonical-extended-json"));
     }

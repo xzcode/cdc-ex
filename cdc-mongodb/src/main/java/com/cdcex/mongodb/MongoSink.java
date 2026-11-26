@@ -23,8 +23,8 @@ final class MongoSink implements SinkConnector {
     }
     @Override public void apply(List<ChangeEvent> events) {
         BsonDocument meta=MongoProvider.collectionMetadata(client,endpoint);
-        if(!identity.equals(MongoProvider.identity(endpoint,meta)) || !schema.equals(MongoProvider.schema(meta)))
-            throw new IllegalStateException("MongoDB target collection identity or validation options changed");
+        if(!identity.equals(MongoProvider.identity(client,endpoint,meta)) || !schema.equals(MongoProvider.schema(meta)))
+            throw new IllegalStateException("MongoDB target replica-set identity, collection identity or validation options changed");
         var collection=client.getDatabase(endpoint.require("database")).getCollection(endpoint.require("table"),BsonDocument.class);
         try(var session=client.startSession()) {
             session.startTransaction(TransactionOptions.builder().readConcern(ReadConcern.SNAPSHOT)

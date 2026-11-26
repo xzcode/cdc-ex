@@ -13,9 +13,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 public abstract class BinlogSource implements SourceConnector {
     private final MysqlTaskConfig config;
+    private final String namespace;
     private volatile DebeziumEngine<RecordChangeEvent<SourceRecord>> engine;
     private volatile boolean closed;
-    protected BinlogSource(MysqlTaskConfig config){this.config=config;}
+    protected BinlogSource(MysqlTaskConfig config){this(config,"legacy");}
+    protected BinlogSource(MysqlTaskConfig config,String taskId){
+        this.config=config;if(taskId==null||!taskId.matches("[A-Za-z0-9_-]{1,64}"))throw new IllegalArgumentException("Invalid capture namespace");namespace="cdc-ex-"+taskId;
+    }
     protected abstract String connectorClass();
     static Map<String,Object> row(Object obj){
         if(obj==null)return null;
@@ -28,12 +32,32 @@ public abstract class BinlogSource implements SourceConnector {
         }
         return result;
     }
-    static ChangeEvent normalize(SourceRecord record){
+    static ChangeEvent normalize(SourceRecord record){return normalize(record,null,null);}
+    static ChangeEvent normalize(SourceRecord record,String database,String selectedTable){
         if(record.value()==null)return null; // tombstone follows a real delete
         if(!(record.value() instanceof Struct envelope))throw new IllegalArgumentException("Unexpected record envelope");
         if(envelope.schema().field("op")==null){
             Object snapshot=record.sourceOffset().get("snapshot");
+            if(envelope.schema().field("source")!=null){
+                Struct metadata=envelope.getStruct("source");
+                if(metadata!=null&&metadata.schema().field("snapshot")!=null)snapshot=metadata.get("snapshot");
+            }
             if(Boolean.TRUE.equals(snapshot)||"true".equals(snapshot)||"last".equals(snapshot))return null;
+            if(database!=null&&envelope.schema().field("tableChanges")!=null){
+                List<Struct> changes=envelope.getArray("tableChanges");
+                boolean affected=false;
+                if(changes!=null)for(Struct change:changes){
+                    if(change.schema().field("id")==null)throw new IllegalArgumentException("Unrecognized schema change identity");
+                    String id=change.getString("id");
+                    if(id==null)throw new IllegalArgumentException("Missing schema change identity");
+                    // Configured identifiers are restricted to letters, digits and underscores.
+                    // A rename carries both old and new quoted identifiers, separated by a comma.
+                    for(String name:id.replace("\"","").replace("`","").split(","))
+                        if(name.strip().equals(database+"."+selectedTable))affected=true;
+                }
+                if(!affected&&changes!=null&&!changes.isEmpty())return null;
+                if(!affected&&envelope.schema().field("databaseName")!=null&&!database.equals(envelope.getString("databaseName")))return null;
+            }
             throw new IllegalStateException("Source DDL changed; explicit schema review is required");
         }
         Struct source=envelope.getStruct("source");
@@ -52,15 +76,16 @@ public abstract class BinlogSource implements SourceConnector {
     }
     Properties properties(){
         var e=config.source();Properties p=new Properties();
-        p.setProperty("name","cdc-ex-mysql");p.setProperty("connector.class",connectorClass());
+        p.setProperty("name",namespace);p.setProperty("connector.class",connectorClass());
         p.setProperty("database.hostname",e.host());p.setProperty("database.port",Integer.toString(e.port()));
         p.setProperty("database.user",e.user());p.setProperty("database.password",e.password());
         p.setProperty("database.ssl.mode",e.connectorSslMode());
-        p.setProperty("database.server.id",Long.toString(config.replicationServerId()));p.setProperty("topic.prefix","cdc-ex");
+        p.setProperty("database.server.id",Long.toString(config.replicationServerId()));p.setProperty("topic.prefix",namespace);
         p.setProperty("database.include.list",Pattern.quote(e.database()));p.setProperty("table.include.list",Pattern.quote(e.database()+"."+e.table()));
         p.setProperty("offset.storage","com.cdcex.debezium.AtomicOffsetStore");
         p.setProperty("offset.storage.file.filename",config.directory().resolve("offsets.dat").toString());
         p.setProperty("offset.flush.interval.ms","0");
+        p.setProperty("heartbeat.interval.ms","1000");
         p.setProperty("schema.history.internal","io.debezium.storage.file.history.FileSchemaHistory");
         p.setProperty("schema.history.internal.file.filename",config.directory().resolve("schema-history.dat").toString());
         p.setProperty("snapshot.mode",config.snapshotMode());p.setProperty("include.schema.changes","true");
@@ -69,6 +94,7 @@ public abstract class BinlogSource implements SourceConnector {
         p.setProperty("max.queue.size.in.bytes","33554432");
         p.setProperty("record.processing.order","ORDERED");p.setProperty("record.processing.threads","1");
         p.setProperty("event.processing.failure.handling.mode","fail");
+        p.setProperty("skipped.operations","none");
         return p;
     }
     public void run(DurableReceiver receiver) throws Exception {
@@ -77,7 +103,10 @@ public abstract class BinlogSource implements SourceConnector {
             .using((success,message,error)->{if(!success)failure.set(error==null?new IllegalStateException("Capture engine failed"):error);})
             .notifying((List<RecordChangeEvent<SourceRecord>> records, DebeziumEngine.RecordCommitter<RecordChangeEvent<SourceRecord>> committer)->{
                 List<ChangeEvent> batch=new ArrayList<>();
-                for(var r:records){ChangeEvent event=normalize(r.record());if(event!=null)batch.add(event);}
+                for(var r:records){
+                    if(com.cdcex.debezium.DebeziumMetadata.isHeartbeat(r.record(),namespace))continue;
+                    ChangeEvent event=normalize(r.record(),config.source().database(),config.source().table());if(event!=null)batch.add(event);
+                }
                 try{receiver.accept(batch);}catch(InterruptedException e){throw e;}catch(Exception e){throw new IllegalStateException("Durable capture rejected",e);}
                 for(var r:records)committer.markProcessed(r);
                 committer.markBatchFinished();

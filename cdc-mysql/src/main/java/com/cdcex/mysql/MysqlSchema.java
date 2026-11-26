@@ -52,7 +52,9 @@ public record MysqlSchema(List<Column> columns,List<String> keys,String uuid) {
             if(!"0".equals(variable(c,"SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA='"+e.database()+"' AND EVENT_OBJECT_TABLE='"+e.table()+"'")))throw new IllegalArgumentException("Target triggers unsupported");
             if(!"0".equals(variable(c,"SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE REFERENCED_TABLE_NAME IS NOT NULL AND ((TABLE_SCHEMA='"+e.database()+"' AND TABLE_NAME='"+e.table()+"') OR (REFERENCED_TABLE_SCHEMA='"+e.database()+"' AND REFERENCED_TABLE_NAME='"+e.table()+"'))")))throw new IllegalArgumentException("Target foreign keys unsupported");
         }
-        return new MysqlSchema(List.copyOf(cols),List.copyOf(keys),identity(c,e));
+        String catalog=e.dialect()==MysqlTaskConfig.Dialect.MYSQL?"INNODB_TABLES":"INNODB_SYS_TABLES";
+        String tableId=variable(c,"SELECT TABLE_ID FROM information_schema."+catalog+" WHERE NAME='"+e.database()+"/"+e.table()+"'");
+        return new MysqlSchema(List.copyOf(cols),List.copyOf(keys),identity(c,e)+":innodb:"+tableId);
     }
     public static Preflight preflight(MysqlTaskConfig config,boolean fresh) throws SQLException {
         try(Connection s=connect(config.source());Connection t=connect(config.target())){

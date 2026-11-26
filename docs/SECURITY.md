@@ -63,7 +63,7 @@ Task pause and stop are asynchronous. Wait for PAUSED or STOPPED before editing 
 Run the actual packaged application with:
 
 ```bash
-bash scripts/security-smoke.sh cdc-server/target/cdc-server-0.1.0-SNAPSHOT.jar
+bash scripts/security-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.1.jar
 
 # Also exercise a real MySQL task through the authenticated control API:
 CDC_TEST_SECURITY_DATABASE=true bash scripts/security-smoke.sh

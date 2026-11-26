@@ -33,7 +33,7 @@ final class ClickHouseHttp implements AutoCloseable {
             .append("&output_format_json_quote_64bit_integers=1&output_format_json_quote_decimals=1&output_format_json_validate_utf8=0")
             .append("&max_execution_time=30");
         if(insert)query.append("&async_insert=0&wait_for_async_insert=1&wait_end_of_query=1");
-        parameters.forEach((k,v)->{if(!k.matches("[A-Za-z0-9_]+"))throw new IllegalArgumentException("Invalid query parameter");query.append("&param_").append(k).append('=').append(encode(v));});
+        parameters.forEach((k,v)->{if(!k.matches("[A-Za-z0-9_]+"))throw new IllegalArgumentException("Invalid query parameter");query.append("&param_").append(k).append('=').append(encode(escapeParameter(v)));});
         return HttpRequest.newBuilder(base.resolve(query.toString())).timeout(Duration.ofSeconds(40))
             .header("X-ClickHouse-User",endpoint.option("user","default"))
             .header("X-ClickHouse-Key",endpoint.option("password",""))
@@ -41,6 +41,10 @@ final class ClickHouseHttp implements AutoCloseable {
             .POST(HttpRequest.BodyPublishers.ofString(sql,StandardCharsets.UTF_8)).build();
     }
     private static String encode(String value){return URLEncoder.encode(value,StandardCharsets.UTF_8);}
+    // HTTP query parameters are parsed with ClickHouse's escaped-string grammar, after URL decoding.
+    static String escapeParameter(String value) {
+        return value.replace("\\","\\\\").replace("\0","\\0").replace("\t","\\t").replace("\n","\\n").replace("\r","\\r");
+    }
     List<Map<String,Object>> query(String sql,Map<String,String> parameters) throws Exception {
         List<Map<String,Object>> rows=new ArrayList<>();long[] bytes={0};
         scan(sql,parameters,row->{

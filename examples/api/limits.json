@@ -1,0 +1,6 @@
+{
+  "journalBytes": 536870912,
+  "journalEvents": 2000000,
+  "batchSize": 0,
+  "maxFailures": 0
+}

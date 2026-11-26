@@ -34,4 +34,10 @@ class KafkaCheckpointTest {
         metadata.requireSameTopic(new KafkaMetadata("cluster","id","topic",3));
         assertThrows(IllegalStateException.class,()->metadata.requireSameSink(new KafkaMetadata("cluster","id","topic",3)));
     }
+    @Test void validJsonOffsetCorruptionIsDetectedBeforeCapture() throws Exception {
+        Path path=directory.resolve("source.json");var checkpoint=new KafkaCheckpoint(path,metadata,"group","earliest",true);
+        checkpoint.save(metadata,Map.of(0,5L));
+        Files.writeString(path,Files.readString(path).replace("\"0\":5","\"0\":8"));
+        assertThrows(IllegalStateException.class,()->new KafkaCheckpoint(path,metadata,"group","earliest",false));
+    }
 }

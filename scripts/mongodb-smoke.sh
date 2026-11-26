@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-jar=$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-SNAPSHOT.jar}")
+jar=$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")
 work=$(mktemp -d)
 name="cdcex-mongo-$RANDOM-$$"
 pid=''
@@ -72,12 +72,15 @@ print(paths[0])
 PY
 )
 python3 - "$checkpoint" <<'PY'
-import json,sys
+import hashlib,json,sys
 p=sys.argv[1]
-with open(p) as f: state=json.load(f)
+with open(p) as f: saved=json.load(f)
+state=saved['state']
 state.pop('token',None)
 state['boundary']={'$timestamp':{'t':1,'i':1}}
-with open(p,'w') as f: json.dump(state,f)
+# This deliberately constructs a valid but expired offset, rather than a damaged checkpoint.
+saved['sha256']=hashlib.sha256(json.dumps(state,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+with open(p,'w') as f: json.dump(saved,f)
 PY
 before=$(sha256sum "$checkpoint" | cut -d' ' -f1)
 start

@@ -1,0 +1,38 @@
+{
+  "id": "mysql-to-mariadb",
+  "source": {
+    "type": "MYSQL",
+    "options": {
+      "host": "mysql.example.invalid",
+      "port": "3306",
+      "user": "cdc_reader",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "app",
+      "table": "orders",
+      "sslMode": "VERIFY_IDENTITY",
+      "replicationServerId": "5401"
+    }
+  },
+  "sink": {
+    "type": "MARIADB",
+    "options": {
+      "host": "mariadb.example.invalid",
+      "port": "3306",
+      "user": "cdc_writer",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "analytics",
+      "table": "orders",
+      "sslMode": "VERIFY_IDENTITY"
+    }
+  },
+  "snapshotMode": "initial",
+  "mapping": {
+    "rename": {},
+    "conversions": {},
+    "exclude": []
+  },
+  "journalBytes": 268435456,
+  "journalEvents": 1000000,
+  "batchSize": 128,
+  "maxFailures": 12
+}

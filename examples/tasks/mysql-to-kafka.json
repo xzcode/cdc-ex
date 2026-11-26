@@ -1,0 +1,39 @@
+{
+  "id": "mysql-to-kafka",
+  "source": {
+    "type": "MYSQL",
+    "options": {
+      "host": "mysql.example.invalid",
+      "port": "3306",
+      "user": "cdc_reader",
+      "password": "REPLACE_FROM_SECRET_MANAGER",
+      "database": "app",
+      "table": "orders",
+      "sslMode": "VERIFY_IDENTITY",
+      "replicationServerId": "5401"
+    }
+  },
+  "sink": {
+    "type": "KAFKA",
+    "options": {
+      "bootstrapServers": "broker.example.invalid:9093",
+      "topic": "orders-cdc",
+      "format": "CDC_EX",
+      "securityProtocol": "SSL",
+      "sslTruststoreLocation": "/run/cdc-secrets/kafka-truststore.p12",
+      "sslTruststoreType": "PKCS12",
+      "sslTruststorePassword": "REPLACE_FROM_SECRET_MANAGER",
+      "maxMessageBytes": "1048576"
+    }
+  },
+  "snapshotMode": "initial",
+  "mapping": {
+    "rename": {},
+    "conversions": {},
+    "exclude": []
+  },
+  "journalBytes": 268435456,
+  "journalEvents": 1000000,
+  "batchSize": 128,
+  "maxFailures": 12
+}
