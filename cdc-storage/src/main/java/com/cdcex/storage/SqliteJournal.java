@@ -23,6 +23,10 @@ public final class SqliteJournal implements AutoCloseable {
             s.execute("CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, bytes INTEGER NOT NULL, op TEXT NOT NULL)");
             s.execute("CREATE TABLE IF NOT EXISTS metadata(k TEXT PRIMARY KEY, v TEXT NOT NULL)");
             s.execute("INSERT OR IGNORE INTO metadata(k,v) VALUES ('ack','0')");
+            s.execute("INSERT OR IGNORE INTO metadata(k,v) SELECT 'event_count',count(*) FROM events");
+            s.execute("INSERT OR IGNORE INTO metadata(k,v) SELECT 'event_bytes',coalesce(sum(bytes),0) FROM events");
+            s.execute("INSERT OR IGNORE INTO metadata(k,v) SELECT 'consumed_count',count(*) FROM events WHERE seq<=CAST((SELECT v FROM metadata WHERE k='ack') AS INTEGER)");
+            s.execute("CREATE TRIGGER IF NOT EXISTS events_account_insert AFTER INSERT ON events BEGIN UPDATE metadata SET v=CAST(v AS INTEGER)+1 WHERE k='event_count'; UPDATE metadata SET v=CAST(v AS INTEGER)+NEW.bytes WHERE k='event_bytes'; END");
         } catch(Exception e) { db.close(); throw e; }
     }
     public synchronized String metadata(String k) throws SQLException {
@@ -43,13 +47,20 @@ public final class SqliteJournal implements AutoCloseable {
     public synchronized void append(List<ChangeEvent> events) throws Exception {
         db.setAutoCommit(false);
         try {
-            try(PreparedStatement s=db.prepareStatement("INSERT INTO events(id,payload,bytes,op) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING")) {
+            try(PreparedStatement s=db.prepareStatement("INSERT INTO events(id,payload,bytes,op) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING");
+                PreparedStatement existing=db.prepareStatement("SELECT payload FROM events WHERE id=?")) {
                 for(ChangeEvent event:events) {
                     String json=EventCodec.json(event);
                     s.setString(1,event.id()); s.setString(2,json);
-                    s.setLong(3,json.getBytes(StandardCharsets.UTF_8).length); s.setString(4,event.operation().name()); s.addBatch();
+                    s.setLong(3,json.getBytes(StandardCharsets.UTF_8).length); s.setString(4,event.operation().name());
+                    if(s.executeUpdate()==0) {
+                        existing.setString(1,event.id());
+                        try(ResultSet r=existing.executeQuery()) {
+                            if(!r.next() || !r.getString(1).equals(json))
+                                throw new IllegalStateException("Event identity collision; capture blocked");
+                        }
+                    }
                 }
-                s.executeBatch();
             }
             Stats st=stats();
             if(st.bytes()>byteLimit || st.total()>eventLimit) throw new IllegalStateException("Journal capacity reached; capture blocked without offset acknowledgement");
@@ -72,15 +83,20 @@ public final class SqliteJournal implements AutoCloseable {
         if(expected.size()!=batch.size()) throw new IllegalStateException("Acknowledgement exceeds pending queue");
         for(int i=0;i<batch.size();i++) if(batch.get(i).sequence()!=expected.get(i).sequence() || !batch.get(i).event().id().equals(expected.get(i).event().id()))
             throw new IllegalStateException("Noncontiguous acknowledgement");
-        try(PreparedStatement s=db.prepareStatement("UPDATE metadata SET v=? WHERE k='ack'")) {
+        db.setAutoCommit(false);
+        try(PreparedStatement s=db.prepareStatement("UPDATE metadata SET v=? WHERE k='ack'");
+            PreparedStatement count=db.prepareStatement("UPDATE metadata SET v=CAST(v AS INTEGER)+? WHERE k='consumed_count'")) {
             s.setString(1,Long.toString(batch.getLast().sequence())); s.executeUpdate();
-        }
+            count.setInt(1,batch.size()); count.executeUpdate();
+            db.commit();
+        } catch(SQLException | RuntimeException e) {db.rollback();throw e;} finally {db.setAutoCommit(true);}
     }
     public synchronized Stats stats() throws SQLException {
         long ack=Long.parseLong(metadata("ack"));
-        try(PreparedStatement s=db.prepareStatement("SELECT count(*),coalesce(sum(CASE WHEN seq>? THEN 1 ELSE 0 END),0),coalesce(sum(bytes),0) FROM events")) {
-            s.setLong(1,ack); try(ResultSet r=s.executeQuery()){r.next();return new Stats(r.getLong(1),r.getLong(2),r.getLong(3),ack);}
-        }
+        long total=Long.parseLong(metadata("event_count")),consumed=Long.parseLong(metadata("consumed_count"));
+        long bytes=Long.parseLong(metadata("event_bytes"));
+        if(consumed>total) throw new IllegalStateException("Journal accounting inconsistency");
+        return new Stats(total,total-consumed,bytes,ack);
     }
     @Override public synchronized void close() throws SQLException { db.close(); }
 }

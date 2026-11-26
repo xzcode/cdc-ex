@@ -33,4 +33,26 @@ class SqliteJournalTest {
             assertEquals(2,j.stats().pending());
         }
     }
+    @Test void rejectsSameIdentityWithDifferentPayloadAtomically() throws Exception {
+        try(var j=new SqliteJournal(dir.resolve("collision.db"),100000,100)) {
+            j.append(List.of(event("a")));
+            var altered=new ChangeEvent("a","a","t",ChangeEvent.Operation.INSERT,"a",Map.of("id",1),null,Map.of("id",2),1);
+            assertThrows(IllegalStateException.class,()->j.append(List.of(event("b"),altered)));
+            assertEquals(1,j.stats().total()); assertEquals(1,j.stats().pending());
+        }
+    }
+    @Test void accountingSurvivesReplayRollbackAndReopen() throws Exception {
+        Path file=dir.resolve("account.db"); long bytes;
+        try(var j=new SqliteJournal(file,100000,2)) {
+            j.append(List.of(event("a"),event("a"),event("b")));
+            bytes=j.stats().bytes();
+            j.acknowledge(j.next(1));
+            assertThrows(IllegalStateException.class,()->j.append(List.of(event("c"))));
+            assertEquals(2,j.stats().total());assertEquals(bytes,j.stats().bytes());
+        }
+        try(var j=new SqliteJournal(file,100000,2)) {
+            assertEquals(2,j.stats().total());assertEquals(1,j.stats().pending());assertEquals(bytes,j.stats().bytes());
+            j.acknowledge(j.next(2)); assertEquals(0,j.stats().pending());
+        }
+    }
 }
