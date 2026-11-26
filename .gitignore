@@ -1,0 +1,17 @@
+target/
+node_modules/
+dist/
+.idea/
+.vscode/
+*.iml
+.env
+.env.*
+!.env.example
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+logs/

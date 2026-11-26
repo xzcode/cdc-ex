@@ -1,0 +1,3 @@
+# CDC EX agent guidance
+
+Read README.md and docs/V1_SCOPE.md, ARCHITECTURE.md, CONNECTORS.md, ROADMAP.md before coding. Keep scope to MySQL, MariaDB, MongoDB, PostgreSQL and ClickHouse. Native CDC on the first four only; ClickHouse limited source modes must be labeled separately. Default language English, add Simplified Chinese. Java 21, Maven, embedded capture; no mandatory broker. Prioritize durable acknowledgements, replay, explicit mapping, and tested capabilities. Do not log credentials or commit environment secrets. No destructive database actions without explicit authorization. Never claim builds or real database tests that were not run. Update roadmap and handoff notes after each meaningful implementation milestone.
