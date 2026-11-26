@@ -6,7 +6,7 @@ A lightweight, self-hosted change data capture and database synchronization plat
 
 **Status:** M1 implementation preview; single-table MySQL-to-MySQL runner, durable journal and connector SPI. Build and real database acceptance must pass before M1 completion. See [M1 runbook](docs/M1_RUNBOOK.md). No connector is production-certified yet.
 
-## V1 database scope
+## V1 database and event-stream scope
 
 | Database | Source | Sink | Capture |
 | --- | --- | --- | --- |
@@ -15,8 +15,11 @@ A lightweight, self-hosted change data capture and database synchronization plat
 | MongoDB | Planned | Planned | Change Streams (replica set or sharded cluster) |
 | PostgreSQL | Planned | Planned | Logical WAL decoding (pgoutput) |
 | ClickHouse | Limited, planned | Planned | Snapshot, explicitly configured incremental cursor or application-owned change table |
+| Apache Kafka | Planned | Planned | Topic / partition / offset, explicit message decoding |
 
 ClickHouse is primarily an analytical sink. Its ordinary tables do not expose a general row-level CDC stream equivalent to MySQL binlog. Cursor mode is not full CDC and does not discover arbitrary deletes or mutations. An explicit change table can represent deletes and updates only if the producer reliably records them.
+
+Kafka is an optional source and sink, not a mandatory infrastructure dependency. Planned modes include database-to-Kafka CDC publication, Kafka-to-database ingestion and Kafka-to-Kafka forwarding. See [Kafka connector specification](docs/KAFKA_CONNECTOR.md).
 
 ## Design
 

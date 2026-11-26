@@ -6,7 +6,9 @@
 
 当前状态：M1 开发预览，已编写单表 MySQL 实时同步、持久化队列及连接器接口，尚待构建和实库验收。参见 [M1 运行手册](M1_RUNBOOK.md)。
 
-首版仅支持 MySQL、MariaDB、MongoDB、PostgreSQL、ClickHouse。前四种作为原生 CDC 源端及写入目标；ClickHouse 作为目标端优先，同时提供全量读取、受约束的增量游标或显式变更表读取，不将普通查询轮询冒充完整 CDC。
+首版支持 MySQL、MariaDB、MongoDB、PostgreSQL、ClickHouse 和 Apache Kafka。前四种作为原生 CDC 源端及写入目标；ClickHouse 作为目标端优先，同时提供全量读取、受约束的增量游标或显式变更表读取，不将普通查询轮询冒充完整 CDC。
+
+Kafka 支持消费与生产、数据库变更事件发布、Kafka 到数据库的映射写入及跨集群转发；不是必装中间件。参见 [Kafka 连接器规范](KAFKA_CONNECTOR.md)。
 
 技术栈：Java 21、Maven、Spring Boot、Debezium Engine、SQLite、Vue 3、TypeScript。首版单节点，不要求 Kafka 或 Flink。
 

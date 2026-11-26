@@ -1,6 +1,6 @@
 # Development roadmap
 
-All stages are planned; M0 documents are the initial baseline. No code or real database tests have run yet.
+M0 design baseline committed. M1 implementation and build verification have started; real database acceptance remains a gate. Kafka is included in V1.
 
 | Stage | Deliverable | Gate |
 | --- | --- | --- |
@@ -10,6 +10,7 @@ All stages are planned; M0 documents are the initial baseline. No code or real d
 | M3 | MongoDB source/sink, BSON mappings | replica set change stream, patch/delete, replay and mapped cross-sync |
 | M4 | PostgreSQL source/sink, WAL and typed mappings | real pgoutput slot, snapshot, DML and recovery |
 | M5 | ClickHouse sink and limited snapshot/cursor/change-table source | batch write, version/tombstone, FINAL comparison, cursor bounds and unsupported mode rejection |
+| M5K | Apache Kafka source/sink, topic mappings, offset recovery and security | real broker tests; database-to-topic, topic-to-database and topic-to-topic; replay and rebalance |
 | M6 | Web UI, connection preflight, task wizard, control, monitoring, logs | real tasks through UI with sanitized diagnostics |
 | M7 | Mappings, schema drift, data comparison, retry and recovery | type fixtures, supported heterogeneous paths, expired offset and blocked event recovery |
 | M8 | Security, i18n, distribution, documented compatibility | authenticated API, persistent volume, JAR/Docker smoke test |
@@ -17,4 +18,4 @@ All stages are planned; M0 documents are the initial baseline. No code or real d
 
 M1 must implement durable source/sink checkpoint separation before exposing replication. Do not defer basic correctness to a later milestone. Each database stage must add real integration fixtures with isolated credentials and pinned images. Fault-injection tests should target journal commit, source offset flush, target commit and sink watermark boundaries. Avoid unrelated test work; do not advertise untested functionality.
 
-Version baseline candidates: MySQL 8.0/8.4, MariaDB 11.4/11.8, MongoDB 7/8, PostgreSQL 16/17, ClickHouse supported LTS. Select exact dependency and container versions after compatibility review; these are targets, not verified version claims.
+Version baseline candidates: MySQL 8.0/8.4, MariaDB 11.4/11.8, MongoDB 7/8, PostgreSQL 16/17, ClickHouse supported LTS, Kafka 3.9/4.x candidates (verify exact client/broker compatibility). Select exact dependency and container versions after compatibility review; these are targets, not verified version claims.

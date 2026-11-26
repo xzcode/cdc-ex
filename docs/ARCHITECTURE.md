@@ -2,7 +2,7 @@
 
 ## Runtime
 
-Java 21 + Maven + Spring Boot, embedded Debezium capture for four native sources, JDBC/native drivers for targets. Vue 3 + TypeScript management UI served by the application. SQLite metadata + bounded durable journal in a persistent data directory. Pin and verify dependency versions before implementation; no mandatory Kafka or Flink.
+Java 21 + Maven + Spring Boot, embedded Debezium capture for four native sources, JDBC/native drivers for targets, optional Apache Kafka Java client for topic source/sink. Vue 3 + TypeScript management UI served by the application. SQLite metadata + bounded durable journal in a persistent data directory. Pin and verify dependency versions before implementation; no mandatory Kafka or Flink.
 
 ```text
 Source connector -> normalize -> durable journal -> mapping -> sink writer
@@ -11,7 +11,7 @@ Source connector -> normalize -> durable journal -> mapping -> sink writer
 Control API -> task supervisor -> metrics / errors / connector preflight
 ```
 
-Modules: cdc-common (typed events), cdc-connector-api (SPI), cdc-storage (journal and checkpoints), cdc-runtime (supervisor and delivery), cdc-transform (mappings), cdc-connectors/{mysql,mariadb,mongodb,postgresql,clickhouse}, cdc-server (API), cdc-web (UI), cdc-distribution (JAR/container). Isolate connectors and do not expose Debezium-specific types in public task API.
+Modules: cdc-common (typed events), cdc-connector-api (SPI), cdc-storage (journal and checkpoints), cdc-runtime (supervisor and delivery), cdc-transform (mappings), cdc-connectors/{mysql,mariadb,mongodb,postgresql,clickhouse,kafka}, cdc-server (API), cdc-web (UI), cdc-distribution (JAR/container). Isolate connectors and do not expose Debezium-specific types in public task API.
 
 ## Event model
 
@@ -27,6 +27,10 @@ Each event includes task generation, source identity, namespace, operation (SNAP
 - Persist schema history and task config generation; block incompatible config changes and recovery after lost offsets or purged source logs. Never silently jump to current offset.
 - Snapshot must have documented source-consistent boundary and replay ordering. Do not implement as naive full query followed by starting at latest offset. Interrupted snapshot must resume safely or restart an explicit generation; reconciliation must handle target rows absent from the new snapshot.
 - Journal cleanup after all relevant durable sink checkpoints and safe replay horizon. Redact secrets and payloads from normal logs. Data directory is sensitive and needs restricted permissions, disk encryption/backup policy.
+
+## Kafka integration
+
+Kafka is an optional endpoint through the same durable source/sink pipeline; it does not replace the embedded journal or require a broker for direct database tasks. Kafka source commits only the next contiguous offset per partition after durable journal persistence. Kafka sink waits for acknowledged sends before advancing the local sink watermark. Retain deterministic event IDs across producer restarts; Kafka producer idempotence does not eliminate application-level replay duplicates. Partition/key ordering and the event-stream semantics are explicit, not global transactional ordering. See KAFKA_CONNECTOR.md.
 
 ## Task lifecycle
 

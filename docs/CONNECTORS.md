@@ -19,6 +19,7 @@ Connector registry identifies database type, supported modes, tested versions, c
 | MongoDB | replica set/sharded cluster, Change Streams access, sufficient oplog retention; preimages if required | resume token |
 | PostgreSQL | wal_level=logical, pgoutput publication and exclusive task slot, replication permissions and suitable replica identity | LSN plus connector-specific state |
 | ClickHouse | readable deterministic query, explicit stable unique cursor tuple or append-only change table with operation, key, payload and sequence | durable compound cursor |
+| Kafka | reachable cluster, explicit topics, consumer group, compatible decoder, read/group ACL | cluster/topic identity, partition and next offset |
 
 MySQL/MariaDB must preserve connector schema history. MongoDB updates may be patches; require full post-images when necessary or implement safe patch handling, never assume update lookup corresponds to the exact historic event. PostgreSQL TOAST/unavailable values and replica identity must be handled without overwriting data with nulls. Use independent task IDs/slots/offset namespaces; validate source log retention and alert on lag.
 
@@ -31,9 +32,11 @@ ClickHouse cursor polling requires a monotonically progressing, immutable, uniqu
 - MongoDB: BSON types and _id mapping; keyed replace/upsert, safe update patches and delete. Do not overwrite unmapped fields accidentally. No automatic ObjectId coercion without mapping rule.
 - ClickHouse: batch inserts via JDBC/client. Two modes: append-only event history (event ID carried, replay duplicates possible without separately validated deduplication), and current-state ReplacingMergeTree(version, is_deleted) with immutable unique ORDER BY identity. Stable persisted monotonic versions per logical key; deterministic retries and tombstones. Current-state queries require FINAL or equivalent latest-version logic; do not promise immediate physical deduplication. Reject unsupported mutable sort keys or implement explicit old-key tombstones. Never use a mutation for every row by default.
 
+- Kafka: acknowledged producer sends, stable message key and event ID, explicit topics and serializers, TLS/SASL. Producer idempotence is required where supported; local journal replay can still duplicate messages. See KAFKA_CONNECTOR.md.
+
 ## Cross-database mapping
 
-Support explicit key and namespace mapping, scalar conversion with overflow/rounding policy, nested JSON/document strategy, timestamp/time-zone policy, null and missing values. Unknown or lossy mappings fail preflight unless user expressly accepts a defined conversion. Binary, decimal, BSON ObjectId, array, JSON and timezone semantics require round-trip tests. Do not assume all 25 source/sink pairs are automatically compatible.
+Support explicit key and namespace mapping, scalar conversion with overflow/rounding policy, nested JSON/document strategy, timestamp/time-zone policy, null and missing values. Unknown or lossy mappings fail preflight unless user expressly accepts a defined conversion. Binary, decimal, BSON ObjectId, array, JSON and timezone semantics require round-trip tests. Do not assume all source/sink combinations are automatically compatible.
 
 ## References
 
