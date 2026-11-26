@@ -19,3 +19,5 @@ The `0.1.0-rc.1` implementation covers every stage below. Release publication is
 Exact fixtures: MySQL 8.4.13, MariaDB 11.4.13, MongoDB 8.0.15, PostgreSQL 17.7, ClickHouse 25.8.7.3 and Apache Kafka 4.0.0 with Kafka Java client 3.9.1. Future versions require separate acceptance. [ACCEPTANCE.md](ACCEPTANCE.md) lists the scripts and evidence boundaries.
 
 Deferred work includes distributed scheduling/HA, source fan-out reuse, multi-master conflict handling, automatic schema migration, wider SQL/BSON mappings, additional Kafka envelope formats, stronger cross-system transactional delivery and receipt retention with a separately proven safe reclamation protocol.
+
+Post-M9 UI refinement: [UI polish handoff](HANDOFF_UI_POLISH.md). This is presentation-only; the published rc.1 remains unchanged until a new validated candidate is explicitly versioned.

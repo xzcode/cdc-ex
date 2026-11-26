@@ -57,6 +57,11 @@ async function waitDelivered(id = taskId) {
     return !!journal && journal.total >= 1 && journal.pending === 0
   }, { timeout: 120000, intervals: [500, 1000, 2000] }).toBe(true)
 }
+async function capture(name) {
+  await expect(page.locator('.toast-message')).not.toBeVisible({ timeout: 7000 })
+  await page.evaluate(() => document.fonts.ready.then(() => undefined))
+  await page.screenshot({ path: join(screenshots, name), fullPage: true })
+}
 async function closeDialog() { await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).first().click() }
 async function fillNameAndIdentifier(modal, name, id) {
   const nameInput = modal.getByLabel('Name', { exact: true })
@@ -101,7 +106,7 @@ async function createTask(id, name, source, sink, screenshot = false) {
   await modal.getByRole('button', { name: 'Discover fields', exact: true }).click()
   await expect(modal.getByLabel('Source field 1', { exact: true })).toHaveValue('id', { timeout: 30000 })
   await expect(modal.getByLabel('Include id', { exact: true })).toBeDisabled()
-  if (screenshot) await page.screenshot({ path: join(screenshots, 'mapping.png'), fullPage: true })
+  if (screenshot) await capture('mapping.png')
   await modal.getByRole('button', { name: 'Continue', exact: true }).click()
   await modal.getByRole('button', { name: 'Create task', exact: true }).click()
   await expect(modal).not.toBeVisible({ timeout: 30000 })
@@ -110,7 +115,7 @@ async function createTask(id, name, source, sink, screenshot = false) {
 try {
   await page.goto(base, { waitUntil: 'networkidle' })
   await expect(page.getByRole('heading', { name: 'Welcome to your data workspace' })).toBeVisible()
-  await page.screenshot({ path: join(screenshots, 'login.png'), fullPage: true })
+  await capture('login.png')
   await page.getByLabel('Administrator token', { exact: true }).fill(token)
   await page.getByRole('button', { name: 'Open workspace', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Your data, in sync.' })).toBeVisible({ timeout: 30000 })
@@ -121,6 +126,7 @@ try {
     await addConnection(secondSourceId, 'UI concurrent source', sourceDatabase, true, replicationId + 1)
     await addConnection(secondSinkId, 'UI concurrent destination', secondTargetDatabase, false)
   }
+  await capture('connections.png')
   const listed = await api('/connections')
   const persisted = listed.filter(item => [sourceId, sinkId].includes(item.id))
   expect(persisted).toHaveLength(2)
@@ -137,6 +143,8 @@ try {
   if (secondTargetDatabase) await createTask(secondTaskId, 'UI concurrent pipeline', secondSourceId, secondSinkId)
   const row = taskRow(taskId)
   await expect(row).toBeVisible()
+  await expect(row.locator('.route-endpoint')).toHaveCount(2)
+  await capture('tasks.png')
   await row.getByRole('button', { name: 'Details UI acceptance pipeline', exact: true }).click()
   const modal = page.getByRole('dialog')
   await modal.getByRole('button', { name: 'Validate', exact: true }).click()
@@ -152,10 +160,10 @@ try {
     await waitDelivered(secondTaskId)
     expect(['CAPTURING', 'STREAMING', 'RUNNING']).toContain((await task()).state)
     await refresh()
-    await page.screenshot({ path: join(screenshots, 'concurrent-tasks.png'), fullPage: true })
+    await capture('concurrent-tasks.png')
   }
   await page.getByRole('navigation').getByRole('button', { name: 'Overview', exact: true }).click()
-  await page.screenshot({ path: join(screenshots, 'overview.png'), fullPage: true })
+  await capture('overview.png')
   await page.getByRole('navigation').getByRole('button', { name: /^Sync tasks/ }).click()
   await taskRow(taskId).getByRole('button', { name: 'Pause UI acceptance pipeline', exact: true }).click()
   await waitState(['PAUSED'])
@@ -178,7 +186,14 @@ try {
   expect(comparison.consistent).toBe(true)
   expect(comparison.sourceCount).toBe(1)
   expect(comparison.targetCount).toBe(1)
-  await page.screenshot({ path: join(screenshots, 'comparison.png'), fullPage: true })
+  await expect(page.getByRole('dialog').getByText('Mapped data matches', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('comparison-source-count')).toHaveText('1')
+  await expect(page.getByTestId('comparison-target-count')).toHaveText('1')
+  await page.getByRole('dialog').getByText('Detailed result (JSON)', { exact: true }).click()
+  await expect(page.getByRole('dialog').locator('pre')).toBeVisible()
+  await page.getByRole('dialog').getByText('Detailed result (JSON)', { exact: true }).click()
+
+  await capture('comparison.png')
   await closeDialog()
   await page.getByRole('button', { name: '中文', exact: true }).click()
   await expect(page.getByRole('heading', { name: '单向同步任务', exact: true })).toBeVisible()
@@ -190,7 +205,13 @@ try {
   // drawer finishes leaving the viewport. Verify the unobscured final layout.
   await expect.poll(() => page.locator('.sidebar').evaluate(element => element.getBoundingClientRect().right), { timeout: 5000 }).toBeLessThanOrEqual(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
-  await page.screenshot({ path: join(screenshots, 'mobile-zh.png'), fullPage: true })
+  const mobileTask = page.locator('.task-table tbody tr').filter({ has: page.getByText(taskId, { exact: true }) })
+  await expect(mobileTask.locator('.route-endpoint')).toHaveCount(2)
+  await expect(mobileTask.locator('.row-actions')).toBeVisible()
+  expect(await page.locator('.task-table').evaluate(table => table.scrollWidth <= table.parentElement.clientWidth + 1)).toBe(true)
+  expect(await mobileTask.locator('.row-actions').evaluate(actions => actions.getBoundingClientRect().right <= window.innerWidth)).toBe(true)
+
+  await capture('mobile-zh.png')
   const html = await page.content()
   expect(html).not.toContain(password)
   expect(html).not.toContain(token)
