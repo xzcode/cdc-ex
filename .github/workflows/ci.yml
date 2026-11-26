@@ -52,7 +52,7 @@ jobs:
           cp "cdc-server/target/cdc-server-$CURRENT_VERSION.jar" target/tested/cdc-ex.jar
           cp target/bom.json target/tested/bom.json
           java -jar target/tested/cdc-ex.jar | tee target/usage.txt
-          rg --fixed-strings 'CDC EX:' target/usage.txt
+          grep -F -- 'CDC EX:' target/usage.txt
           python3 - <<'PY'
           import hashlib,json,os,pathlib,subprocess
           folder=pathlib.Path('target/tested')

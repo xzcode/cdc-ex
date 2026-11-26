@@ -69,7 +69,7 @@ jobs:
           PY
           )
           gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name' > "$RUNNER_TEMP/release-tags.txt"
-          if [[ "$exists" == true ]] || rg --fixed-strings --line-regexp "$RELEASE_TAG" "$RUNNER_TEMP/release-tags.txt" >/dev/null; then
+          if [[ "$exists" == true ]] || grep -Fx -- "$RELEASE_TAG" "$RUNNER_TEMP/release-tags.txt" >/dev/null; then
             echo 'This release tag already exists; preserving existing tags and release content.'
             echo 'publish=false' >> "$GITHUB_OUTPUT"
             exit 0
