@@ -11,6 +11,19 @@ public record ChangeEvent(String id, String database, String table, Operation op
         key = immutable(key); before = immutable(before); after = immutable(after);
     }
     private static Map<String,Object> immutable(Map<String,Object> value) {
-        return value == null ? null : Collections.unmodifiableMap(new LinkedHashMap<>(value));
+        if(value==null)return null;
+        Map<String,Object> copy=new LinkedHashMap<>();
+        value.forEach((k,v)->copy.put(Objects.requireNonNull(k),freeze(v)));
+        return Collections.unmodifiableMap(copy);
+    }
+    private static Object freeze(Object value) {
+        if(value instanceof Map<?,?> map){
+            Map<String,Object> copy=new LinkedHashMap<>();
+            map.forEach((k,v)->{if(!(k instanceof String s))throw new IllegalArgumentException("Document keys must be strings");copy.put(s,freeze(v));});
+            return Collections.unmodifiableMap(copy);
+        }
+        if(value instanceof List<?> list)return Collections.unmodifiableList(list.stream().map(ChangeEvent::freeze).toList());
+        if(value==null||value instanceof String||value instanceof Number||value instanceof Boolean)return value;
+        throw new IllegalArgumentException("Unsupported event value; use an explicit typed JSON representation");
     }
 }

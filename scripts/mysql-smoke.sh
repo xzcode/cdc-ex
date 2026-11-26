@@ -13,8 +13,8 @@ cleanup() {
   rc=$?
   if [[ -n "$pid" ]]; then kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
   if [[ "$rc" != 0 ]]; then tail -n 100 "$work/runner.log" 2>/dev/null || true; docker logs --tail 30 "$src" 2>/dev/null || true; docker logs --tail 30 "$dst" 2>/dev/null || true; fi
-  docker rm -f "$src" >/dev/null 2>&1 || true
-  if [[ "$src" != "$dst" ]]; then docker rm -f "$dst" >/dev/null 2>&1 || true; fi
+  docker rm -fv "$src" >/dev/null 2>&1 || true
+  if [[ "$src" != "$dst" ]]; then docker rm -fv "$dst" >/dev/null 2>&1 || true; fi
   rm -rf "$work"
   return "$rc"
 }
@@ -22,8 +22,8 @@ trap cleanup EXIT
 start_db() {
   local name="$1" type="$2" sid="$3"
   case "$type" in
-    MYSQL) docker run -d --name "$name" -p 127.0.0.1::3306 -e MYSQL_ROOT_PASSWORD="$password" -e MYSQL_ROOT_HOST=% mysql:8.4 --server-id="$sid" --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL >/dev/null ;;
-    MARIADB) docker run -d --name "$name" -p 127.0.0.1::3306 -e MARIADB_ROOT_PASSWORD="$password" -e MARIADB_ROOT_HOST=% mariadb:11.4 --server-id="$sid" --log-bin=mariadb-bin --binlog-format=ROW --binlog-row-image=FULL --binlog-legacy-event-pos=ON --log-bin-compress=OFF >/dev/null ;;
+    MYSQL) docker run -d --name "$name" --memory=512m --cpus=1 -p 127.0.0.1::3306 -e MYSQL_ROOT_PASSWORD="$password" -e MYSQL_ROOT_HOST=% mysql:8.4.13 --innodb-buffer-pool-size=64M --innodb-log-buffer-size=8M --max-connections=32 --performance-schema=OFF --server-id="$sid" --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL >/dev/null ;;
+    MARIADB) docker run -d --name "$name" --memory=512m --cpus=1 -p 127.0.0.1::3306 -e MARIADB_ROOT_PASSWORD="$password" -e MARIADB_ROOT_HOST=% mariadb:11.4.13 --innodb-buffer-pool-size=64M --innodb-log-buffer-size=8M --max-connections=32 --performance-schema=OFF --server-id="$sid" --log-bin=mariadb-bin --binlog-format=ROW --binlog-row-image=FULL --binlog-legacy-event-pos=ON --log-bin-compress=OFF >/dev/null ;;
     *) echo "Unsupported test dialect"; return 1 ;;
   esac
 }
@@ -61,6 +61,10 @@ assert_sql() {
   done
   echo "Expected $expected, got $actual"; return 1
 }
+start
+assert_sql "SELECT CONCAT(name,':',amount) FROM dst.items WHERE id=1" "initial:123.45"
+# Snapshot-only restart must not require a subsequent DML event as proof of completion.
+stop
 start
 assert_sql "SELECT CONCAT(name,':',amount) FROM dst.items WHERE id=1" "initial:123.45"
 s_sql "INSERT INTO src.items VALUES(2,'added',22.10); UPDATE src.items SET amount=999.99 WHERE id=1;"

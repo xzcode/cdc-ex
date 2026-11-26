@@ -1,0 +1,12 @@
+<configuration>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder><pattern>%d{HH:mm:ss} %-5level %logger{24} - %msg%n</pattern></encoder>
+  </appender>
+  <!-- Connector exceptions can contain payloads or credentials. Operator diagnostics use safe codes. -->
+  <logger name="io.debezium" level="OFF"/>
+  <logger name="org.apache.kafka" level="OFF"/>
+  <logger name="org.mongodb.driver" level="OFF"/>
+  <logger name="org.mariadb.jdbc" level="OFF"/>
+  <logger name="org.springframework" level="WARN"/>
+  <root level="WARN"><appender-ref ref="CONSOLE"/></root>
+</configuration>

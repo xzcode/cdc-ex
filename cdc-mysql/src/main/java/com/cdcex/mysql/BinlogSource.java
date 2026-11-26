@@ -31,6 +31,11 @@ public abstract class BinlogSource implements SourceConnector {
     static ChangeEvent normalize(SourceRecord record){
         if(record.value()==null)return null; // tombstone follows a real delete
         if(!(record.value() instanceof Struct envelope))throw new IllegalArgumentException("Unexpected record envelope");
+        if(envelope.schema().field("op")==null){
+            Object snapshot=record.sourceOffset().get("snapshot");
+            if(Boolean.TRUE.equals(snapshot)||"true".equals(snapshot)||"last".equals(snapshot))return null;
+            throw new IllegalStateException("Source DDL changed; explicit schema review is required");
+        }
         Struct source=envelope.getStruct("source");
         String db=source.getString("db"),table=source.getString("table");
         String op=envelope.getString("op");
@@ -40,7 +45,7 @@ public abstract class BinlogSource implements SourceConnector {
             default->ChangeEvent.Operation.UNSUPPORTED;
         };
         Map<String,Object> key=row(record.key()),before=row(envelope.get("before")),after=row(envelope.get("after"));
-        String position=EventCodec.json(List.of(record.sourcePartition(),record.sourceOffset()));
+        String position=EventCodec.canonicalJson(List.of(record.sourcePartition(),record.sourceOffset()));
         String id=EventCodec.digest(Arrays.asList(position,db,table,op,key,operation==ChangeEvent.Operation.SNAPSHOT?after:null));
         Long ts=source.getInt64("ts_ms");
         return new ChangeEvent(id,db,table,operation,position,key,before,after,ts==null?0:ts);
@@ -53,14 +58,15 @@ public abstract class BinlogSource implements SourceConnector {
         p.setProperty("database.ssl.mode",e.connectorSslMode());
         p.setProperty("database.server.id",Long.toString(config.replicationServerId()));p.setProperty("topic.prefix","cdc-ex");
         p.setProperty("database.include.list",Pattern.quote(e.database()));p.setProperty("table.include.list",Pattern.quote(e.database()+"."+e.table()));
-        p.setProperty("offset.storage","org.apache.kafka.connect.storage.FileOffsetBackingStore");
+        p.setProperty("offset.storage","com.cdcex.debezium.AtomicOffsetStore");
         p.setProperty("offset.storage.file.filename",config.directory().resolve("offsets.dat").toString());
         p.setProperty("offset.flush.interval.ms","0");
         p.setProperty("schema.history.internal","io.debezium.storage.file.history.FileSchemaHistory");
         p.setProperty("schema.history.internal.file.filename",config.directory().resolve("schema-history.dat").toString());
-        p.setProperty("snapshot.mode",config.snapshotMode());p.setProperty("include.schema.changes","false");
+        p.setProperty("snapshot.mode",config.snapshotMode());p.setProperty("include.schema.changes","true");
         p.setProperty("tombstones.on.delete","false");p.setProperty("decimal.handling.mode","precise");
         p.setProperty("max.batch.size","256");p.setProperty("max.queue.size","1024");
+        p.setProperty("max.queue.size.in.bytes","33554432");
         p.setProperty("record.processing.order","ORDERED");p.setProperty("record.processing.threads","1");
         p.setProperty("event.processing.failure.handling.mode","fail");
         return p;

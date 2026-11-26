@@ -1,0 +1,29 @@
+services:
+  cdc-ex:
+    build: .
+    image: cdc-ex:local
+    ports:
+      - "127.0.0.1:${CDC_PORT:-8080}:8080"
+    environment:
+      CDC_MODE: server
+      CDC_DATA_DIR: /data
+      CDC_BIND: 0.0.0.0
+      CDC_ALLOW_REMOTE: "true"
+      CDC_PORT: "8080"
+      CDC_ADMIN_TOKEN: ${CDC_ADMIN_TOKEN:?Set a random admin token of at least 32 characters}
+      CDC_MASTER_KEY: ${CDC_MASTER_KEY:?Set a base64-encoded random 32-byte master key}
+    volumes:
+      - cdc_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    pids_limit: 256
+    stop_grace_period: 60s
+    restart: unless-stopped
+volumes:
+  cdc_data:

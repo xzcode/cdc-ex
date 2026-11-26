@@ -1,0 +1,13 @@
+.git
+**/target
+**/node_modules
+**/dist
+.env
+.env.*
+data
+logs
+*.log
+*.db
+*.db-wal
+*.db-shm
+acceptance-results.json

@@ -1,6 +1,6 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion><groupId>com.cdcex</groupId><artifactId>cdc-ex</artifactId><version>0.1.0-SNAPSHOT</version><packaging>pom</packaging>
-  <modules><module>cdc-core</module><module>cdc-storage</module><module>cdc-runtime</module><module>cdc-mysql</module><module>cdc-mariadb</module><module>cdc-server</module></modules>
+  <modules><module>cdc-core</module><module>cdc-storage</module><module>cdc-runtime</module><module>cdc-debezium</module><module>cdc-mysql</module><module>cdc-mariadb</module><module>cdc-mongodb</module><module>cdc-postgresql</module><module>cdc-kafka</module><module>cdc-clickhouse</module><module>cdc-server</module></modules>
   <properties><maven.compiler.release>21</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding><spring-boot.version>3.4.11</spring-boot.version><debezium.version>3.2.7.Final</debezium.version><sqlite.version>3.50.3.0</sqlite.version><mysql.version>9.4.0</mysql.version><mariadb.version>3.5.5</mariadb.version></properties>
   <dependencyManagement><dependencies>
     <!-- Explicitly align overlapping BOMs; Debezium governs Kafka Connect, Boot governs logging and Jackson. -->
@@ -19,7 +19,12 @@
 <dependency><groupId>com.cdcex</groupId><artifactId>cdc-server</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>com.cdcex</groupId><artifactId>cdc-mariadb</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>org.mariadb.jdbc</groupId><artifactId>mariadb-java-client</artifactId><version>${mariadb.version}</version></dependency>
-  </dependencies></dependencyManagement>
+<dependency><groupId>com.cdcex</groupId><artifactId>cdc-debezium</artifactId><version>${project.version}</version></dependency>
+<dependency><groupId>com.cdcex</groupId><artifactId>cdc-mongodb</artifactId><version>${project.version}</version></dependency>
+<dependency><groupId>com.cdcex</groupId><artifactId>cdc-postgresql</artifactId><version>${project.version}</version></dependency>
+<dependency><groupId>com.cdcex</groupId><artifactId>cdc-kafka</artifactId><version>${project.version}</version></dependency>
+<dependency><groupId>com.cdcex</groupId><artifactId>cdc-clickhouse</artifactId><version>${project.version}</version></dependency>
+<dependency><groupId>org.mongodb</groupId><artifactId>mongodb-driver-sync</artifactId><version>5.4.0</version></dependency><dependency><groupId>org.mongodb</groupId><artifactId>mongodb-driver-core</artifactId><version>5.4.0</version></dependency><dependency><groupId>org.mongodb</groupId><artifactId>bson</artifactId><version>5.4.0</version></dependency>  </dependencies></dependencyManagement>
   <build><pluginManagement><plugins>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.0</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.3</version></plugin>

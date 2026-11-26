@@ -44,6 +44,8 @@ public record MysqlSchema(List<Column> columns,List<String> keys,String uuid) {
         }
         if(keys.isEmpty()) throw new IllegalArgumentException("A stable primary key is required");
         if(target) {
+            for(Column column:cols)if(keys.contains(column.name())&&column.collation()!=null&&!column.collation().endsWith("_bin")&&!column.collation().equals("binary"))
+                throw new IllegalArgumentException("Text target keys require a binary collation to preserve distinct mapped identities");
             try(Statement s=c.createStatement();ResultSet r=s.executeQuery("SHOW INDEX FROM "+e.qualified())){
                 while(r.next()) if(r.getInt("Non_unique")==0&&!"PRIMARY".equals(r.getString("Key_name")))throw new IllegalArgumentException("Secondary unique target indexes are unsupported");
             }
