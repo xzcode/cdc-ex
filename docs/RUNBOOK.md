@@ -82,7 +82,7 @@ docker compose --env-file "$HOME/.config/cdc-ex/server.env" up -d --build
 docker compose --env-file "$HOME/.config/cdc-ex/server.env" logs --tail=100 cdc-ex
 ```
 
-The checked-in `compose.yml` supplies `CDC_ADMIN_TOKEN` and `CDC_MASTER_KEY` from the protected environment file. It does **not** mount a key file by default. It uses a named persistent `/data` volume, a read-only root filesystem, a temporary `/tmp`, and container UID/GID `10001:10001`. Its listener is `0.0.0.0` inside the container with explicit remote-bind opt-in; the published host port remains bound to `127.0.0.1`.
+The checked-in `compose.yml` supplies `CDC_ADMIN_TOKEN` and `CDC_MASTER_KEY` from the protected environment file. It does **not** mount a key file by default. It uses a named persistent `/data` volume, a read-only root filesystem, a temporary `/tmp`, and container UID/GID `10001:10001`. The bounded tmpfs explicitly permits executable mappings because SQLite and other JNI dependencies extract native libraries there; `nosuid`, `nodev` and the sticky permission mode remain enabled. Its listener is `0.0.0.0` inside the container with explicit remote-bind opt-in; the published host port remains bound to `127.0.0.1`.
 
 When replacing the named volume with a bind mount, prepare its ownership for UID/GID `10001:10001`; do not solve ownership errors with world-writable permissions. Mount TLS trust material at the paths used in the connections. A deployment that chooses `CDC_MASTER_KEY_FILE` must mount its owner-readable key and configure that variable explicitly.
 

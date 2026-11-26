@@ -137,6 +137,8 @@ jobs:
         if: matrix.script == 'security'
         working-directory: cdc-web
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
           npm ci
           test -x "$CDC_UI_CHROMIUM"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8

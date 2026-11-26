@@ -69,33 +69,38 @@ for name,source,sink,mapping in tasks:
  path=pathlib.Path(folder,name+'.json');path.write_text(json.dumps(task));path.chmod(0o600)
 PY
   assert_mongo() {
-    local query=$1
+    local query=$1 actual
     for i in $(seq 1 90); do
-      if [[ $(mongo "$query" 2>/dev/null) == true ]]; then return; fi
+      # A malformed fixture query is an immediate failure, not replication lag.
+      if ! actual=$(mongo "$query"); then
+        echo 'Cross-task MongoDB assertion command failed' >&2
+        return 1
+      fi
+      if [[ "$actual" == true ]]; then return; fi
       if ! kill -0 "$pid" 2>/dev/null; then echo 'Cross-task worker exited unexpectedly' >&2; return 1; fi
       sleep 1
     done
     echo 'Cross-task MongoDB assertion timed out' >&2; return 1
   }
   start sql-mongo
-  assert_mongo 'const d=db.getSiblingDB("mongodst");print(d.items.countDocuments({})===2&&d.items.findOne({_id:NumberLong(1)}).name==="初始数据"&&d.items.findOne({_id:NumberLong("9007199254740993")}).amount.toString()==="999.99"&&d.items.countDocuments({_id:{$type:"long"}})===2)'
+  assert_mongo 'const d=db.getSiblingDB("mongodst");print(d.items.countDocuments({})===2&&d.items.findOne({_id:NumberLong("1")}).name==="初始数据"&&d.items.findOne({_id:NumberLong("9007199254740993")}).amount.toString()==="999.99"&&d.items.countDocuments({_id:{$type:"long"}})===2)'
   sql "UPDATE srcsql.items SET amount=42.10 WHERE id=1; UPDATE srcsql.items SET id=3 WHERE id=9007199254740993; INSERT INTO srcsql.items VALUES(4,'delete-me',4.10); DELETE FROM srcsql.items WHERE id=4;"
-  assert_mongo 'const d=db.getSiblingDB("mongodst");print(d.items.countDocuments({})===2&&d.items.findOne({_id:NumberLong(1)}).amount.toString()==="42.10"&&d.items.findOne({_id:NumberLong(3)})!==null&&d.items.findOne({_id:NumberLong("9007199254740993")})===null)'
+  assert_mongo 'const d=db.getSiblingDB("mongodst");print(d.items.countDocuments({})===2&&d.items.findOne({_id:NumberLong("1")}).amount.toString()==="42.10"&&d.items.findOne({_id:NumberLong("3")})!==null&&d.items.findOne({_id:NumberLong("9007199254740993")})===null)'
   stop
   sql "INSERT INTO srcsql.items VALUES(5,'offline',5.55)"
   start sql-mongo
-  assert_mongo 'print(db.getSiblingDB("mongodst").items.findOne({_id:NumberLong(5)})?.name==="offline")'
+  assert_mongo 'print(db.getSiblingDB("mongodst").items.findOne({_id:NumberLong("5")})?.name==="offline")'
   stop
   echo 'MySQL -> MongoDB explicit key/Decimal128 mapping, Unicode, DML, primary-key change and restart passed.'
   start mongo-sql
   assert_sql "SELECT CONCAT(id,':',amount) FROM dstsql.items" '9007199254740993:1234567890123456.78'
-  mongo 'db=db.getSiblingDB("mongosrc");db.items.updateOne({_id:NumberLong("9007199254740993")},{$set:{name:"updated",amount:NumberDecimal("999.99")}});db.items.insertOne({_id:NumberLong(2),name:"second",amount:NumberDecimal("2.20")});' >/dev/null
+  mongo 'db=db.getSiblingDB("mongosrc");db.items.updateOne({_id:NumberLong("9007199254740993")},{$set:{name:"updated",amount:NumberDecimal("999.99")}});db.items.insertOne({_id:NumberLong("2"),name:"second",amount:NumberDecimal("2.20")});' >/dev/null
   assert_sql "SELECT CONCAT(name,':',amount) FROM dstsql.items WHERE id=9007199254740993" 'updated:999.99'
   assert_sql 'SELECT amount FROM dstsql.items WHERE id=2' '2.20'
-  mongo 'db.getSiblingDB("mongosrc").items.deleteOne({_id:NumberLong(2)})' >/dev/null
+  mongo 'db.getSiblingDB("mongosrc").items.deleteOne({_id:NumberLong("2")})' >/dev/null
   assert_sql 'SELECT count(*) FROM dstsql.items' 1
   stop
-  mongo 'db.getSiblingDB("mongosrc").items.insertOne({_id:NumberLong(3),name:"offline",amount:NumberDecimal("3.30")})' >/dev/null
+  mongo 'db.getSiblingDB("mongosrc").items.insertOne({_id:NumberLong("3"),name:"offline",amount:NumberDecimal("3.30")})' >/dev/null
   start mongo-sql
   assert_sql "SELECT CONCAT(name,':',amount) FROM dstsql.items WHERE id=3" 'offline:3.30'
   stop

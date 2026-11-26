@@ -20,7 +20,7 @@ if [[ $# == 0 ]]; then image_owned=true; fi
 cleanup() {
   result=$?
   if [[ "$result" != 0 ]]; then
-    for name in "$first" "$second" "$wrong"; do docker logs --tail 80 "$name" >"$work/$name.log" 2>&1 || true; done
+    for name in "$first" "$second" "$wrong"; do docker logs --tail 200 "$name" >"$work/$name.log" 2>&1 || true; done
     python3 - "$work" "$token" "$master" "$secret" <<'PY'
 import pathlib,sys
 for file in pathlib.Path(sys.argv[1]).glob('*.log'):
@@ -55,8 +55,9 @@ CDC_MASTER_KEY=$master
 JAVA_TOOL_OPTIONS=-Xms32m -Xmx256m -XX:MaxDirectMemorySize=64m
 ENV
 run_container() {
+  # Docker defaults tmpfs to noexec; SQLite and Kafka JNI libraries need executable extraction space.
   docker run -d --name "$1" --read-only --memory=768m --cpus=1 --pids-limit=256 \
-    --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+    --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=64m,mode=1777 \
     --mount "type=volume,source=$volume,target=/data" -p 127.0.0.1::8080 \
     --health-interval=2s --health-timeout=3s --health-start-period=5s --health-retries=25 \
     --env-file "$2" "$image" >/dev/null

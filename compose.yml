@@ -16,7 +16,7 @@ services:
       - cdc_data:/data
     read_only: true
     tmpfs:
-      - /tmp:rw,nosuid,nodev,size=64m
+      - /tmp:rw,exec,nosuid,nodev,size=64m,mode=1777
     cap_drop:
       - ALL
     security_opt:

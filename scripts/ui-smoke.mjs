@@ -2,7 +2,7 @@
 // Real browser acceptance against an isolated CDC EX server and MySQL fixture.
 // Invoked by security-smoke.sh with CDC_TEST_UI=true; no API mocking.
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 const require = createRequire(new URL('../cdc-web/package.json', import.meta.url))
 const { chromium, expect } = require('@playwright/test')
@@ -184,4 +184,18 @@ try {
   expect(html).not.toContain(token)
   expect(errors).toEqual([])
   console.log(`Real UI acceptance passed: authenticated login, protected connections, preflight, field wizard, MySQL snapshot, pause/resume${secondTargetDatabase ? ', concurrent tasks with separate replication identities' : ''}, exact comparison, EN/ZH, mobile layout and no browser errors.`)
+} catch (error) {
+  // Preserve useful UI failure evidence without serializing credential values.
+  const redact = text => String(text).replaceAll(password, '[redacted]').replaceAll(token, '[redacted]')
+  try {
+    await page.screenshot({ path: join(screenshots, 'failure.png'), fullPage: true })
+    const controls = await page.locator('select').evaluateAll(elements => elements.map(element => ({
+      ariaLabel: element.getAttribute('aria-label'),
+      labels: Array.from(element.labels || []).map(label => label.textContent),
+      disabled: element.disabled,
+      choices: Array.from(element.options).map(option => option.text),
+    })))
+    writeFileSync(join(screenshots, 'failure-controls.json'), redact(JSON.stringify({ controls, browserErrors: errors }, null, 2)))
+  } catch { /* Reporting must not hide the original acceptance failure. */ }
+  throw new Error(redact(error?.stack || error))
 } finally { await browser.close() }
