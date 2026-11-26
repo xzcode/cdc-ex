@@ -59,7 +59,8 @@ root.joinpath('server.properties').write_text('\n'.join(k+'='+v for k,v in prope
 root.joinpath('server.properties').chmod(0o600)
 for s in sockets:s.close()
 PY
-java -Xmx128m -cp "$work/lib/*" kafka.tools.StorageTool format --cluster-id "$(cat "$work/cluster")" --config "$work/server.properties" \
+# A URL-safe base64 Kafka UUID may begin with '-'; attach it to the option so argparse treats it as a value.
+java -Xmx128m -cp "$work/lib/*" kafka.tools.StorageTool format --cluster-id="$(cat "$work/cluster")" --config "$work/server.properties" \
   --add-scram "SCRAM-SHA-256=[name=cdctest,password=$password]" --add-scram "SCRAM-SHA-512=[name=cdctest,password=$password]" >"$work/format.log" 2>&1
 java -Xms128m -Xmx384m -XX:MaxDirectMemorySize=128m -cp "$work/lib/*" kafka.Kafka "$work/server.properties" >"$work/broker.log" 2>&1 & broker_pid=$!
 tls_port="$(cat "$work/tls-port")"; sasl_port="$(cat "$work/sasl-port")"

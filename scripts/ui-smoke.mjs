@@ -186,6 +186,9 @@ try {
   await page.getByRole('button', { name: '工作空间', exact: true }).click()
   await page.getByRole('navigation').getByRole('button', { name: '概览', exact: true }).click()
   await expect(page.getByRole('heading', { name: '数据同步，清晰可见。', exact: true })).toBeVisible()
+  // Navigation closes with a CSS transition; the heading appears before the
+  // drawer finishes leaving the viewport. Verify the unobscured final layout.
+  await expect.poll(() => page.locator('.sidebar').evaluate(element => element.getBoundingClientRect().right), { timeout: 5000 }).toBeLessThanOrEqual(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
   await page.screenshot({ path: join(screenshots, 'mobile-zh.png'), fullPage: true })
   const html = await page.content()

@@ -22,7 +22,9 @@ docker run -d --name "$name" --memory=512m --cpus=1 -p 127.0.0.1::3306 \
   --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL \
   --innodb-buffer-pool-size=64M --innodb-log-buffer-size=8M --max-connections=32 --performance-schema=OFF >/dev/null
 port=$(docker port "$name" 3306/tcp | head -n1 | awk -F: '{print $NF}')
-sql() { docker exec -e MYSQL_PWD="$password" "$name" mysql -uroot -N -B -e "$1"; }
+# The image's temporary initialization server exposes a socket before it restarts.
+# TCP readiness identifies the final server that the CDC worker will use.
+sql() { docker exec -e MYSQL_PWD="$password" "$name" mysql -h127.0.0.1 -uroot -N -B -e "$1"; }
 for _ in $(seq 1 90); do if sql 'SELECT 1' >/dev/null 2>&1; then break; fi; sleep 1; done
 sql 'SELECT 1' >/dev/null
 version=$(sql 'SELECT VERSION()')
@@ -32,7 +34,7 @@ for start in range(1,1001,250):
     rows=','.join("(%d,'record-%d',%d.%02d)"%(i,i,i//100,i%100) for i in range(start,min(start+250,1001)))
     print('INSERT INTO src.items VALUES '+rows+';')
 PY
-docker exec -i -e MYSQL_PWD="$password" "$name" mysql -uroot <"$work/initial.sql"
+docker exec -i -e MYSQL_PWD="$password" "$name" mysql -h127.0.0.1 -uroot <"$work/initial.sql"
 cat >"$work/task.json" <<JSON
 {"id":"acceptance","source":{"type":"MYSQL","options":{"host":"127.0.0.1","port":"$port","user":"root","password":"$password","database":"src","table":"items","sslMode":"REQUIRED","replicationServerId":"54019"}},"sink":{"type":"MYSQL","options":{"host":"127.0.0.1","port":"$port","user":"root","password":"$password","database":"dst","table":"items","sslMode":"REQUIRED"}},"snapshotMode":"initial","maxFailures":4}
 JSON
@@ -60,7 +62,7 @@ print("UPDATE src.items SET name=CONCAT(name,'-updated'),amount=amount+1.25 WHER
 print('DELETE FROM src.items WHERE MOD(id,10)=0;COMMIT;')
 PY
 dml_begin=$(clock)
-docker exec -i -e MYSQL_PWD="$password" "$name" mysql -uroot <"$work/dml.sql"
+docker exec -i -e MYSQL_PWD="$password" "$name" mysql -h127.0.0.1 -uroot <"$work/dml.sql"
 wait_for "SELECT COUNT(*)=4500 AND SUM(name LIKE '%-updated')=900 FROM dst.items" 1
 dml_end=$(clock)
 hash_table() { sql "SELECT id,name,amount FROM $1.items ORDER BY id" | sha256sum | awk '{print $1}'; }
