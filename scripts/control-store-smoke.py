@@ -1,5 +1,5 @@
 """Run against the exact packaged application and isolated real services."""
-import base64,json,os,pathlib,secrets,socket,subprocess,time,urllib.request,urllib.error
+import base64,hashlib,json,os,pathlib,secrets,socket,subprocess,time,urllib.request,urllib.error
 e=os.environ
 root=pathlib.Path(e["CONTROL_TEST_WORK"])
 kind=e["CDC_TEST_CONTROL_TYPE"]
@@ -18,7 +18,7 @@ env=dict(e,CDC_MODE="server",CDC_DATA_DIR=str(state),CDC_PORT=str(p),CDC_ADMIN_T
          CDC_CONTROL_MYSQL_DATABASE="cdc_control",CDC_CONTROL_MYSQL_USER="root",CDC_CONTROL_MYSQL_PASSWORD=secret,CDC_CONTROL_MYSQL_SSL_MODE="REQUIRED",
          CDC_CONTROL_MONGO_DATABASE="cdc_control",CDC_CONTROL_MONGO_TLS="false")
 env.pop("CDC_MASTER_KEY_FILE",None)
-if kind=="MONGODB": env["CDC_CONTROL_MONGO_URI"]=f'mongodb://root:{secret}@127.0.0.1:{e["CONTROL_TEST_MONGO_PORT"]}/?authSource=admin&directConnection=true'
+if "CONTROL_TEST_MONGO_PORT" in e: env["CDC_CONTROL_MONGO_URI"]=f'mongodb://root:{secret}@127.0.0.1:{e["CONTROL_TEST_MONGO_PORT"]}/?authSource=admin&directConnection=true'
 proc=None
 def request(path,method="GET",body=None):
     data=json.dumps(body).encode() if body is not None else None
@@ -116,6 +116,63 @@ try:
     wait(paused_all)
     assert request("/audit")
     for i in range(1,count+1):assert (state/"tasks"/f"task-{i}"/"journal.db").exists()
+    if e.get("CDC_TEST_CONTROL_MIGRATION")=="true":
+        assert kind=="SQLITE" and count==1
+        def local_hashes():
+            return {str(x.relative_to(state)):hashlib.sha256(x.read_bytes()).hexdigest()
+                    for x in (state/"tasks").rglob("*") if x.is_file()}
+        def metadata():
+            return (request("/connections"),
+                    [{k:v for k,v in t.items() if k!="health"} for t in request("/tasks")],
+                    request("/audit"))
+        def migrate_env(target,db):
+            opts={"CDC_MODE":"migrate-control","CDC_MIGRATE_CONFIRM":"true","CDC_MIGRATE_DB_TYPE":target}
+            for k,v in env.items():
+                if k.startswith("CDC_CONTROL_") and k!="CDC_CONTROL_DB_TYPE":
+                    opts["CDC_MIGRATE_"+k[len("CDC_CONTROL_"):]]=v
+            if target=="MYSQL":opts["CDC_MIGRATE_MYSQL_DATABASE"]=db
+            elif target=="MONGODB":opts["CDC_MIGRATE_MONGO_DATABASE"]=db
+            return opts
+        # Six directions with a new dedicated DB for each remote destination.
+        # A live service must not be migrated, even when the task is paused.
+        reject(migrate_env("MYSQL","migration_mysql_1"),"migration-live")
+        sequence=[("MYSQL","migration_mysql_1"),("MONGODB","migration_mongo_2"),
+                  ("SQLITE",""),("MONGODB","migration_mongo_4"),
+                  ("MYSQL","migration_mysql_5"),("SQLITE","")]
+        for n,(target,db) in enumerate(sequence,1):
+            before=metadata()
+            stop()
+            hashes=local_hashes()
+            binding=state/"control-store.binding"
+            previous=binding.read_bytes() if binding.exists() else None
+            opts=migrate_env(target,db)
+            reject(dict(opts,CDC_MIGRATE_CONFIRM="false"),"migration-no-confirm")
+            if n==5:
+                # Attempt to overwrite the already used first MySQL repository.
+                reject(migrate_env("MYSQL","migration_mysql_1"),"migration-occupied")
+            assert (binding.read_bytes() if binding.exists() else None)==previous
+            migration=launch(opts,"migration-"+str(n))
+            try: assert migration.wait(timeout=90)==0,"Migration failed"
+            finally:
+                if migration.poll() is None:migration.kill();migration.wait()
+            assert local_hashes()==hashes,"Migration changed local task state"
+            assert binding.exists() and binding.read_text().splitlines()[0]==target
+            reject({"CDC_CONTROL_DB_TYPE":env["CDC_CONTROL_DB_TYPE"]},"migration-old-backend")
+            env["CDC_CONTROL_DB_TYPE"]=target
+            if target=="MYSQL":env["CDC_CONTROL_MYSQL_DATABASE"]=db
+            elif target=="MONGODB":env["CDC_CONTROL_MONGO_DATABASE"]=db
+            start()
+            assert metadata()==before,"Metadata changed during migration"
+            assert status(1)=="PAUSED"
+            sql(f"INSERT INTO src.items VALUES({3+n},'after-migration')")
+            request("/tasks/task-1/start","POST")
+            wait(lambda:sql("SELECT COUNT(*) FROM dst.items_1")==str(3+n))
+            assert sql("SELECT name FROM dst.items_1 WHERE id="+str(3+n))=="after-migration"
+            request("/tasks/task-1/pause","POST")
+            wait(paused_all)
+        assert sql("SELECT COUNT(*) FROM migration_mysql_1.cdc_ex_records")=="3"
+        assert sql("SELECT COUNT(*) FROM migration_mysql_5.cdc_ex_records")=="3"
+        print("All six offline migration directions: exact metadata, unchanged local journal/checkpoints, resumed real CDC; live/occupied/no-confirm/old-backend rejection passed.")
     print(f"{kind}: real metadata CRUD, credential preservation, owner/key checks, {count} simultaneous CDC tasks, crash and resume passed.")
 finally:
     stop()

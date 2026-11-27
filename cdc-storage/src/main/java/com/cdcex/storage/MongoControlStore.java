@@ -76,5 +76,26 @@ public final class MongoControlStore implements ControlRepository {
         List<ControlStore.Audit> out=new ArrayList<>();
         try(var cursor=events.find().sort(Sorts.descending("_id")).limit(100).iterator()){while(cursor.hasNext()){var row=cursor.next();out.add(new ControlStore.Audit(row.getLong("at"),row.getString("action"),row.getString("resource"),row.getString("result")));}}return out;
     }
+    @Override public synchronized Snapshot snapshot()throws Exception{
+        List<ControlStore.Record> all=new ArrayList<>();List<ControlStore.Audit> history=new ArrayList<>();
+        try(var cursor=records.find().sort(Sorts.ascending("kind","id")).iterator()){while(cursor.hasNext())all.add(record(cursor.next()));}
+        try(var cursor=events.find().sort(Sorts.ascending("_id")).iterator()){
+            while(cursor.hasNext()){var row=cursor.next();history.add(new ControlStore.Audit(row.getLong("at"),row.getString("action"),row.getString("resource"),row.getString("result")));}
+        }
+        return new Snapshot(all,history);
+    }
+    @Override public synchronized void importSnapshot(Snapshot snapshot)throws Exception{
+        Snapshot existing=snapshot();
+        if(!existing.records().isEmpty()||!existing.audit().isEmpty())throw new IllegalStateException("Migration destination is not empty");
+        // Standalone MongoDB has no multi-document transaction. A fresh, uniquely owned target
+        // remains unbound if any write fails; the existing deployment is not switched.
+        for(var r:snapshot.records()){
+            String k=key(r.kind(),r.id());
+            records.insertOne(new Document("_id",k).append("kind",r.kind()).append("id",r.id()).append("name",r.name())
+                .append("body",new Binary(secrets.seal(k,r.json()))).append("state",r.state()).append("error",r.error())
+                .append("source_identity",r.sourceIdentity()).append("sink_identity",r.sinkIdentity()).append("updated",r.updated()));
+        }
+        for(var a:snapshot.audit())events.insertOne(new Document("at",a.timestamp()).append("action",a.action()).append("resource",a.resource()).append("result",a.result()));
+    }
     @Override public synchronized void close(){client.close();}
 }

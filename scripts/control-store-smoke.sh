@@ -27,12 +27,13 @@ docker run -d --name "$mysql" --memory=512m --cpus=1 -p 127.0.0.1::3306 -e MYSQL
 sql(){ docker exec -e MYSQL_PWD="$secret" "$mysql" mysql -h127.0.0.1 -uroot -NB -e "$1"; }
 for i in $(seq 1 90); do if sql 'SELECT 1' >/dev/null 2>&1; then break; fi; sleep 1; done
 sql 'CREATE DATABASE src; CREATE DATABASE dst; CREATE DATABASE cdc_control; CREATE DATABASE cdc_empty; CREATE TABLE src.items(id BIGINT PRIMARY KEY,name VARCHAR(40)); INSERT INTO src.items VALUES(1,"initial");'
+if [[ "${CDC_TEST_CONTROL_MIGRATION:-false}" == true ]]; then sql 'CREATE DATABASE migration_mysql_1; CREATE DATABASE migration_mysql_5;'; fi
 count=1
 if [[ "$CDC_TEST_CONTROL_TYPE" == MYSQL ]]; then count=5; fi
 for i in $(seq 1 "$count"); do sql "CREATE TABLE dst.items_$i LIKE src.items"; done
 export CONTROL_TEST_COUNT="$count" CONTROL_TEST_SQL_CONTAINER="$mysql"
 export CONTROL_TEST_SQL_PORT="$(docker port "$mysql" 3306/tcp | head -1 | awk -F: '{print $NF}')"
-if [[ "$CDC_TEST_CONTROL_TYPE" == MONGODB ]]; then
+if [[ "$CDC_TEST_CONTROL_TYPE" == MONGODB || "${CDC_TEST_CONTROL_MIGRATION:-false}" == true ]]; then
   docker run -d --name "$mongo" --memory=512m --cpus=1 -p 127.0.0.1::27017 -e MONGO_INITDB_ROOT_USERNAME=root -e MONGO_INITDB_ROOT_PASSWORD="$secret" mongo:8.0.15 --wiredTigerCacheSizeGB=0.25 >/dev/null
   for i in $(seq 1 90); do
     if docker exec "$mongo" mongosh --quiet --host 127.0.0.1 -u root -p "$secret" --authenticationDatabase admin --eval 'db.adminCommand({ping:1}).ok' 2>/dev/null | grep -qx 1; then break; fi

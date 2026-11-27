@@ -11,5 +11,15 @@ public interface ControlRepository extends AutoCloseable {
     void recoverInterrupted()throws Exception;
     void audit(String action,String resource,String result)throws Exception;
     List<ControlStore.Audit> audits()throws Exception;
+    /** Complete retained management data, oldest audit first. Use only under offline ownership. */
+    record Snapshot(List<ControlStore.Record> records,List<ControlStore.Audit> audit){
+        public Snapshot {
+            records=records.stream().sorted(java.util.Comparator.comparing(ControlStore.Record::kind).thenComparing(ControlStore.Record::id)).toList();
+            audit=List.copyOf(audit);
+        }
+    }
+    Snapshot snapshot()throws Exception;
+    /** Destination must be fresh. Never overwrite or merge existing records. */
+    void importSnapshot(Snapshot snapshot)throws Exception;
     @Override void close()throws Exception;
 }

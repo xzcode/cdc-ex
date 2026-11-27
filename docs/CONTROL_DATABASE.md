@@ -1,4 +1,4 @@
-# Optional management database (rc.2)
+# Optional management database
 
 CDC EX separates its **control repository** (connections, encrypted task definitions, status, identities, audit) from per-task **delivery journals and native capture checkpoints**. SQLite remains the default management repository; MySQL and MongoDB are optional alternatives. The task journal always uses local SQLite WAL with durable acknowledgements.
 
@@ -37,10 +37,40 @@ Use a dedicated database/account (readWrite for that database). The Mongo contro
 
 New external deployments require a new persistent local directory and an unused dedicated remote repository. A durable `control-store.binding` file contains the chosen backend and random deployment identity. The remote encrypted owner check includes that identity and the deployment key. Another independently initialized directory or a different key is rejected. After initial binding, an absent owner record is an error, not an invitation to initialize a blank store. Do not delete or edit binding files to force recovery.
 
-Existing SQLite instances continue unchanged. Automatic SQLite-to-MySQL/MongoDB migration, switching external backends, distributed locks and HA are **not** provided in this change; startup refuses a backend switch on a directory containing existing state. Do not copy the same bound directory to another running process or share one remote management database across nodes. Local journals remain authoritative for CDC delivery. If a control database is unavailable, management operations may fail; already-running workers have independent local delivery state. Verify task state after recovery.
+Existing SQLite instances continue unchanged. Ordinary startup still refuses a backend switch. The post-rc.2 offline migration command below explicitly copies and verifies management data before changing the binding. Distributed locks and HA remain out of scope. Do not copy the same bound directory to another running process or share one remote management database across nodes. Local journals remain authoritative for CDC delivery. If a control database is unavailable, management operations may fail; already-running workers have independent local delivery state. Verify task state after recovery.
 
 Stop tasks and the server before taking coordinated backups of both the external database and the complete local data directory. Preserve the same master key separately. Restore them together to one owner. Encryption protects the connection/task JSON body, not the journal payload or all metadata. Audit retention remains bounded (last 100 exposed, up to 10,000 stored).
 
 This change does not itself establish production-scale concurrency. The rc.1 tag and its published assets remain unchanged; rc.2 is gated by its own complete CI run.
 
 The integration suite covers a real metadata restart, key/owner checks, pause and resume after a process crash, and resuming a gracefully paused generation without clearing checkpoints. MySQL exercises five simultaneously running tasks to detect any regression of the former count cap; other management backends are tested independently.
+
+## Offline migration (post-rc.2 development)
+
+Supports every direction between SQLite, MySQL and MongoDB. The published rc.2 binary does not include this command. Use the new source build or an explicitly published later version. Same-backend relocation is not supported by this command.
+
+1. Pause all tasks, wait until they are inactive, and stop the server. Keep source log retention sufficient for the outage.
+2. Back up the current control repository, full local data directory and master key together. Create an unused dedicated target database/account when targeting MySQL/MongoDB; never reuse a previous migration destination.
+3. Keep all existing `CDC_CONTROL_*` and master-key settings for the source. Add destination settings under the separate `CDC_MIGRATE_*` prefix, and run the same JAR once with `CDC_MODE=migrate-control` and `CDC_MIGRATE_CONFIRM=true`. No HTTP listener or CDC workers start.
+4. Only after the command exits successfully, configure the destination using normal `CDC_CONTROL_*` variables and start the server. Resume the saved tasks normally.
+
+Example: existing SQLite to MySQL (with verified TLS and JVM trust configured):
+
+```sh
+export CDC_MODE=migrate-control
+export CDC_MIGRATE_CONFIRM=true
+export CDC_MIGRATE_DB_TYPE=MYSQL
+export CDC_MIGRATE_MYSQL_HOST=db.example
+export CDC_MIGRATE_MYSQL_PORT=3306
+export CDC_MIGRATE_MYSQL_DATABASE=cdc_ex_control_new
+export CDC_MIGRATE_MYSQL_USER=cdc_ex
+# supply CDC_MIGRATE_MYSQL_PASSWORD securely
+export CDC_MIGRATE_MYSQL_SSL_MODE=VERIFY_IDENTITY
+java -jar cdc-ex.jar
+```
+
+The destination options are the ordinary control variables with `CDC_CONTROL_` replaced by `CDC_MIGRATE_`, including explicit TLS opt-in if needed. For MongoDB set `CDC_MIGRATE_DB_TYPE=MONGODB`, `CDC_MIGRATE_MONGO_URI`, `CDC_MIGRATE_MONGO_DATABASE`, and optionally `CDC_MIGRATE_MONGO_TLS`. For SQLite set `CDC_MIGRATE_DB_TYPE=SQLITE`; a new `control-<uuid>.db` is created instead of overwriting any earlier local database.
+
+The command holds the server and existing task directory locks. It refuses active/interrupted task states, unregistered local task directories, invalid keys, occupied targets, and missing confirmation. It preserves IDs, definitions, credentials (re-encrypted with the same key), states, errors, identities, update timestamps and all retained audit entries in order. It verifies exact metadata equality, closes and reopens the destination and verifies again before atomically replacing the local binding. No plaintext export file is created. No journal or checkpoint is copied, rewritten, reset or deleted.
+
+The old repository is retained. A failed migration before the binding switch leaves the original binding unchanged; the partially initialized destination is not activated. Do not delete owner records to retry. Choose another unused destination and review the original repository. If an interruption occurs during the final switch, inspect `control-store.binding` to determine the selected backend. After a successful switch, do not restore the old binding in isolation; the old repository becomes stale as soon as the new server runs. A rollback needs a coordinated backup restore or another explicit migration to a fresh repository. Do not downgrade to an older binary after changing the binding format. This is not online migration, distributed fencing, or key rotation. Large metadata sets need sufficient heap for the in-memory verification snapshot.

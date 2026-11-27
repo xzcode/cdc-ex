@@ -61,17 +61,22 @@ public final class ControlStore implements ControlRepository {
             verify(db,initialize);
         }catch(Exception e){db.close();throw e;}
     }
-    public ControlStore(Path file,byte[] key)throws Exception{
-        mysql=false;remote=null;checkValue=KEY_CHECK;
+    public ControlStore(Path file,byte[] key)throws Exception{this(file,key,null,true);}
+    public ControlStore(Path file,byte[] key,String owner,boolean initialize)throws Exception{
+        if(!initialize&&!Files.isRegularFile(file,LinkOption.NOFOLLOW_LINKS))throw new IllegalStateException("Bound SQLite control store is missing");
+        if(Files.isSymbolicLink(file))throw new IllegalStateException("Invalid SQLite control store path");
+        mysql=false;remote=null;checkValue=owner==null?KEY_CHECK:KEY_CHECK+":"+owner;
         Class.forName("org.sqlite.JDBC");Files.createDirectories(file.toAbsolutePath().getParent());
         secrets=new SecretBox(key);db=DriverManager.getConnection("jdbc:sqlite:"+file.toAbsolutePath());
         try(Statement s=db.createStatement()){
             s.execute("PRAGMA journal_mode=WAL");s.execute("PRAGMA synchronous=FULL");s.execute("PRAGMA busy_timeout=5000");
+            if(initialize){
             s.execute("CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,body BLOB NOT NULL,state TEXT NOT NULL,error TEXT,source_identity TEXT,sink_identity TEXT,updated INTEGER NOT NULL,PRIMARY KEY(kind,id))");
             s.execute("CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT,at INTEGER NOT NULL,action TEXT NOT NULL,resource TEXT NOT NULL,result TEXT NOT NULL)");
             s.execute("CREATE TABLE IF NOT EXISTS secrets_check(id INTEGER PRIMARY KEY CHECK(id=1),value BLOB NOT NULL)");
+            }
         }
-        try{verify(db,true);}catch(Exception e){db.close();throw e;}
+        try{verify(db,initialize);}catch(Exception e){db.close();throw e;}
         if(Files.getFileStore(file).supportsFileAttributeView("posix"))Files.setPosixFilePermissions(file,PosixFilePermissions.fromString("rw-------"));
     }
     public synchronized void create(String kind,String id,String name,String json)throws Exception{
@@ -112,6 +117,29 @@ public final class ControlStore implements ControlRepository {
     }
     public synchronized List<Audit> audits()throws Exception{
         List<Audit> result=new ArrayList<>();try(PreparedStatement s=prepare("SELECT at,action,resource,result FROM audit ORDER BY seq DESC LIMIT 100");ResultSet r=s.executeQuery()){while(r.next())result.add(new Audit(r.getLong(1),r.getString(2),r.getString(3),r.getString(4)));}return result;
+    }
+    @Override public synchronized Snapshot snapshot()throws Exception{
+        List<Record> all=new ArrayList<>();List<Audit> history=new ArrayList<>();
+        try(PreparedStatement s=prepare("SELECT * FROM records ORDER BY kind,id");ResultSet r=s.executeQuery()){while(r.next())all.add(record(r));}
+        try(PreparedStatement s=prepare("SELECT at,action,resource,result FROM audit ORDER BY seq ASC");ResultSet r=s.executeQuery()){while(r.next())history.add(new Audit(r.getLong(1),r.getString(2),r.getString(3),r.getString(4)));}
+        return new Snapshot(all,history);
+    }
+    @Override public synchronized void importSnapshot(Snapshot snapshot)throws Exception{
+        Snapshot existing=snapshot();
+        if(!existing.records().isEmpty()||!existing.audit().isEmpty())throw new IllegalStateException("Migration destination is not empty");
+        Connection c=connection();c.setAutoCommit(false);
+        try{
+            try(PreparedStatement s=c.prepareStatement(sql("INSERT INTO records(kind,id,name,body,state,error,source_identity,sink_identity,updated) VALUES(?,?,?,?,?,?,?,?,?)"))){
+                for(Record r:snapshot.records()){
+                    id(r.id());s.setString(1,r.kind());s.setString(2,r.id());s.setString(3,r.name());s.setBytes(4,secrets.seal(r.kind()+":"+r.id(),r.json()));s.setString(5,r.state());s.setString(6,r.error());s.setString(7,r.sourceIdentity());s.setString(8,r.sinkIdentity());s.setLong(9,r.updated());s.executeUpdate();
+                }
+            }
+            try(PreparedStatement s=c.prepareStatement(sql("INSERT INTO audit(at,action,resource,result) VALUES(?,?,?,?)"))){
+                for(Audit a:snapshot.audit()){s.setLong(1,a.timestamp());s.setString(2,a.action());s.setString(3,a.resource());s.setString(4,a.result());s.executeUpdate();}
+            }
+            c.commit();
+        }catch(Exception e){try{c.rollback();}catch(SQLException rollback){e.addSuppressed(rollback);}throw e;}
+        finally{c.setAutoCommit(true);}
     }
     public static void id(String id){if(id==null||!id.matches("[A-Za-z0-9_-]{1,64}"))throw new IllegalArgumentException("Invalid resource ID");}
     @Override public synchronized void close()throws SQLException{if(db!=null)db.close();}

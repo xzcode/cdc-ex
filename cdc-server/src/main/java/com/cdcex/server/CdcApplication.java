@@ -36,6 +36,7 @@ public class CdcApplication {
     }
     static void run(String[] args)throws Exception{
         Map<String,String> env=System.getenv();
+        if("migrate-control".equalsIgnoreCase(env.get("CDC_MODE"))){ControlMigration.run(env);return;}
         if("server".equalsIgnoreCase(env.get("CDC_MODE"))){
             String address=env.getOrDefault("CDC_BIND","127.0.0.1");
             if(!Set.of("127.0.0.1","::1","localhost").contains(address)&&!"true".equalsIgnoreCase(env.get("CDC_ALLOW_REMOTE")))throw new IllegalArgumentException("Remote binding requires explicit opt-in and a TLS reverse proxy");

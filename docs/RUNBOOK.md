@@ -273,3 +273,5 @@ The delivery guarantee is at least once. Local receipt deduplication and determi
 ## Optional management repository
 
 See [CONTROL_DATABASE.md](CONTROL_DATABASE.md) for startup variables, binding and backup requirements. Use a dedicated external database for each deployment and keep its local journal directory. The existing release tag is unchanged.
+
+To switch the management database, stop tasks and the service and use the explicit post-rc.2 offline migration procedure in [CONTROL_DATABASE.md](CONTROL_DATABASE.md). Back up the complete local directory and original control repository first. Never switch a bound backend by editing the binding file.

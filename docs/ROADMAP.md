@@ -23,3 +23,5 @@ Deferred work includes distributed scheduling/HA, source fan-out reuse, multi-ma
 Post-M9 UI refinement: [UI polish handoff](HANDOFF_UI_POLISH.md). Included in the rc.2 candidate with the original rc.1 tag and assets preserved.
 
 RC.2 management storage: selectable SQLite/MySQL/MongoDB control repositories and removal of the fixed four-active-task gate. See [CONTROL_DATABASE.md](CONTROL_DATABASE.md); the local CDC journal contract is unchanged.
+
+Post-rc.2: offline management repository migration between all three storage backends. Copy and durable verification precede the binding switch; source and per-task journals are retained. See [CONTROL_DATABASE.md](CONTROL_DATABASE.md).
