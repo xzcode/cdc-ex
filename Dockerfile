@@ -24,8 +24,8 @@ ENTRYPOINT ["java","-XX:MaxRAMPercentage=70","-Duser.timezone=UTC","-jar","/app/
 
 # CI supplies a separate, checksum-verified named context; no second Maven build.
 FROM runtime AS tested
-COPY --from=tested-artifact cdc-ex.jar /app/cdc-ex.jar
+COPY --chmod=444 --from=tested-artifact cdc-ex.jar /app/cdc-ex.jar
 
 # Default target: keep the normal source-build experience for Docker Compose.
 FROM runtime AS source
-COPY --from=build /src/cdc-server/target/cdc-server-*.jar /app/cdc-ex.jar
+COPY --chmod=444 --from=build /src/cdc-server/target/cdc-server-*.jar /app/cdc-ex.jar
