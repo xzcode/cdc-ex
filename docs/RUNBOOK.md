@@ -2,7 +2,7 @@
 
 This runbook describes the `0.1.0-rc.1` implementation. Read the [M9 handoff](HANDOFF_M9.md) and release acceptance report for the exact build, database versions and observed test results. An implemented connector or an example file does not certify every database version or source/sink pairing.
 
-CDC EX runs one-way, single-table or single-collection tasks. MySQL, MariaDB, MongoDB and PostgreSQL have native change capture. ClickHouse has explicitly limited source modes. Kafka is an optional endpoint; direct database tasks do not need a broker. The management server permits at most four active tasks and protects task/data-directory ownership within a single process deployment. This is not an HA deployment protocol.
+CDC EX runs one-way, single-table or single-collection tasks. MySQL, MariaDB, MongoDB and PostgreSQL have native change capture. ClickHouse has explicitly limited source modes. Kafka is an optional endpoint; direct database tasks do not need a broker. The management server has no hard-coded active task-count cap and protects task/data-directory ownership within a single process deployment. This is not an HA deployment protocol.
 
 ## 1. Build and choose a launch mode
 
@@ -57,7 +57,7 @@ test ! -e "$cdc_env_file" || { printf 'Existing deployment file: retain its key.
 chmod 600 "$cdc_env_file"
 ```
 
-The control store encrypts complete endpoint/task JSON with AES-256-GCM. Pending journal events, offsets and schema history remain sensitive files; configuration encryption does not encrypt the complete data directory. Protect the filesystem and its backups accordingly. See [security and deployment boundaries](SECURITY.md).
+The selected SQLite (default), MySQL or MongoDB control store encrypts complete endpoint/task JSON with AES-256-GCM. Pending journal events, offsets and schema history remain sensitive files; configuration encryption does not encrypt the complete data directory. Protect the filesystem and its backups accordingly. See [security and deployment boundaries](SECURITY.md).
 
 ### Start the JAR as a management service
 
@@ -269,3 +269,7 @@ The delivery guarantee is at least once. Local receipt deduplication and determi
 - [Task lifecycle and comparison](../cdc-server/src/main/java/com/cdcex/server/TaskManager.java)
 - [Runtime delivery limits](../cdc-runtime/src/main/java/com/cdcex/runtime/TaskRuntime.java)
 - [Journal accounting and receipts](../cdc-storage/src/main/java/com/cdcex/storage/SqliteJournal.java)
+
+## Optional management repository
+
+See [CONTROL_DATABASE.md](CONTROL_DATABASE.md) for startup variables, binding and backup requirements. Use a dedicated external database for each deployment and keep its local journal directory. The existing release tag is unchanged.

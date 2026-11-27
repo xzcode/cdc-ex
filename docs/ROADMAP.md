@@ -21,3 +21,5 @@ Exact fixtures: MySQL 8.4.13, MariaDB 11.4.13, MongoDB 8.0.15, PostgreSQL 17.7, 
 Deferred work includes distributed scheduling/HA, source fan-out reuse, multi-master conflict handling, automatic schema migration, wider SQL/BSON mappings, additional Kafka envelope formats, stronger cross-system transactional delivery and receipt retention with a separately proven safe reclamation protocol.
 
 Post-M9 UI refinement: [UI polish handoff](HANDOFF_UI_POLISH.md). This is presentation-only; the published rc.1 remains unchanged until a new validated candidate is explicitly versioned.
+
+Post-rc.1 management storage: selectable SQLite/MySQL/MongoDB control repositories and removal of the fixed four-active-task gate. See [CONTROL_DATABASE.md](CONTROL_DATABASE.md); the local CDC journal contract is unchanged.

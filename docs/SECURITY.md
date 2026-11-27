@@ -32,7 +32,7 @@ The browser must not send this token to third-party origins. No wildcard cross-o
 
 ## Encrypted control metadata
 
-The SQLite control store encrypts the complete endpoint/task JSON body with **AES-256-GCM**. Each record uses a fresh 96-bit nonce and a 128-bit authentication tag. Versioned ciphertext is bound to its record purpose and ID with additional authenticated data. Replacing one connection's ciphertext with another record's ciphertext does not yield a valid decrypted record for the new ID.
+The SQLite, MySQL and MongoDB control repositories encrypt the complete endpoint/task JSON body with **AES-256-GCM**. Each record uses a fresh 96-bit nonce and a 128-bit authentication tag. Versioned ciphertext is bound to its record purpose and ID with additional authenticated data. Replacing one connection's ciphertext with another record's ciphertext does not yield a valid decrypted record for the new ID.
 
 A key-check record is verified when the control store opens. A wrong deployment key blocks startup instead of treating existing configuration as empty or silently replacing it. Retain the key with an appropriately protected backup; loss of the key prevents recovery of saved connection credentials. Do not change the key to bypass a failed startup. There is no implicit key replacement or automatic migration to a new key.
 
@@ -80,8 +80,10 @@ Passing this fixture establishes those observed behaviors for the tested build. 
 
 管理 API 可启动数据库写入任务，访问权限应按数据库管理权限保护。服务默认仅监听本机；远程访问需要明确启用，并配置 TLS 反向代理及网络访问控制。除不含敏感信息的健康接口外，API 使用管理令牌认证；当前是单管理员、单节点模型。
 
-连接和任务配置以 AES-256-GCM 加密存放在 SQLite，部署密钥由服务外部提供。每条密文使用独立随机 nonce，并绑定记录用途和 ID。使用错误密钥时必须拒绝启动，不能通过删除状态或换密钥来继续运行。请同时妥善备份完整数据目录和部署密钥。
+连接和任务配置以 AES-256-GCM 加密存放在所选 SQLite、MySQL 或 MongoDB 管理数据库，部署密钥由服务外部提供。每条密文使用独立随机 nonce，并绑定记录用途和 ID。使用错误密钥时必须拒绝启动，不能通过删除状态或换密钥来继续运行。请同时妥善备份完整数据目录和部署密钥。
 
 待投递日志中的业务数据没有被该配置加密机制覆盖，仍需文件权限、磁盘加密和备份加密保护。正常日志和 API 错误不应包含密码、带凭据的 URI、原始行数据或消息载荷。任务暂停/停止是异步过程，应等待状态完成后再修改连接或恢复任务。
 
 `scripts/security-smoke.sh` 用真实打包应用检查认证、脱敏、加密持久化、目录独占、错误密钥拒绝及重启。设置 `CDC_TEST_SECURITY_DATABASE=true` 可增加真实 MySQL 的 API 操作验收。该脚本通过并不代表外部 TLS、账户权限和生产网络环境已完成验证。
+
+External control metadata uses the same encryption format. Protect external credentials and configure verified TLS by default. The local deployment binding prevents accidental backend/owner replacement, not distributed fencing; never clone a live task directory or share the external database between installations. Back up external metadata with stopped local journals and the same key. See [CONTROL_DATABASE.md](CONTROL_DATABASE.md).

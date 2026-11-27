@@ -49,7 +49,7 @@ CDC_RUN=true CDC_TASK_FILE=/absolute/path/task.json \
   java -jar cdc-server/target/cdc-server-0.1.0-rc.1.jar
 ```
 
-Start with an [example task](examples/tasks), replace its explicit configuration placeholders, and protect the resulting file. `CDC_PREFLIGHT_ONLY=true` validates prerequisites without starting capture. A task captures one table, collection or topic; managed mode allows four concurrently active tasks.
+Start with an [example task](examples/tasks), replace its explicit configuration placeholders, and protect the resulting file. `CDC_PREFLIGHT_ONLY=true` validates prerequisites without starting capture. A task captures one table, collection or topic; managed mode has no fixed active task-count cap. Actual concurrency depends on host resources and endpoint ownership.
 
 ## Delivery and recovery
 
@@ -68,3 +68,7 @@ The journal compacts acknowledged payloads into retained replay receipts. Defaul
 ## License
 
 A project license has not yet been selected. Apache-2.0 was proposed during design; no grant should be inferred from that proposal. Third-party components retain their own licenses; the release dependency inventory identifies the packaged components.
+
+### Optional management database
+
+The current development branch supports SQLite (default), MySQL or MongoDB for encrypted connection/task definitions, state, identities and audit records. Per-task journals and native checkpoints remain local in every mode. See [Control database configuration](docs/CONTROL_DATABASE.md). Switching an existing deployment requires an explicit migration. Published rc.1 remains unchanged.

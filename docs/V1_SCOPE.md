@@ -21,7 +21,7 @@ Comparisons require an inactive task, an empty pending queue and the caller's as
 
 ## Deliberate boundaries
 
-- One table, collection or topic per task; at most four concurrently active managed tasks. A task directory and the management store have one process owner. No distributed lease, HA scheduler or active-active failover.
+- One table, collection or topic per task; no fixed active managed task-count limit; actual concurrency depends on resources and connector ownership. A task directory and the management store have one process owner. No distributed lease, HA scheduler or active-active failover.
 - One-way tasks. Resource identity checks reject self-targeting, known managed graph cycles and concurrent destination ownership. They cannot infer an unregistered external replication topology.
 - At-least-once delivery. Source and sink checkpoints are independent. Source transactions can span delivery batches; heterogeneous sinks are not committed atomically with source offsets.
 - Stable explicit keys are required for replicated state. Arbitrary scripts, keyless state replication and filters on mutable values are rejected rather than guessed.
@@ -36,3 +36,5 @@ Comparisons require an inactive task, an empty pending queue and the caller's as
 - The pre-release journal fingerprint is versioned. Earlier development state has no automatic migration into this release candidate. Follow the reconciliation and backup procedure before creating a new task generation.
 
 Dependencies and exact packed hashes are included with each release. The release workload records performance in its stated fixture environment; it is not a general throughput or production availability guarantee.
+
+The post-rc.1 development branch supports optional external management repositories; see [CONTROL_DATABASE.md](CONTROL_DATABASE.md). The published rc.1 compatibility contract is unchanged.

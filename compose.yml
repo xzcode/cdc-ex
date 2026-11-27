@@ -10,6 +10,17 @@ services:
       CDC_BIND: 0.0.0.0
       CDC_ALLOW_REMOTE: "true"
       CDC_PORT: "8080"
+      CDC_CONTROL_DB_TYPE: ${CDC_CONTROL_DB_TYPE:-SQLITE}
+      CDC_CONTROL_MYSQL_HOST: ${CDC_CONTROL_MYSQL_HOST:-}
+      CDC_CONTROL_MYSQL_PORT: ${CDC_CONTROL_MYSQL_PORT:-3306}
+      CDC_CONTROL_MYSQL_DATABASE: ${CDC_CONTROL_MYSQL_DATABASE:-}
+      CDC_CONTROL_MYSQL_USER: ${CDC_CONTROL_MYSQL_USER:-}
+      CDC_CONTROL_MYSQL_PASSWORD: ${CDC_CONTROL_MYSQL_PASSWORD:-}
+      CDC_CONTROL_MYSQL_SSL_MODE: ${CDC_CONTROL_MYSQL_SSL_MODE:-VERIFY_IDENTITY}
+      CDC_CONTROL_MONGO_URI: ${CDC_CONTROL_MONGO_URI:-}
+      CDC_CONTROL_MONGO_DATABASE: ${CDC_CONTROL_MONGO_DATABASE:-}
+      CDC_CONTROL_MONGO_TLS: ${CDC_CONTROL_MONGO_TLS:-true}
+      CDC_CONTROL_ALLOW_INSECURE: ${CDC_CONTROL_ALLOW_INSECURE:-false}
       CDC_ADMIN_TOKEN: ${CDC_ADMIN_TOKEN:?Set a random admin token of at least 32 characters}
       CDC_MASTER_KEY: ${CDC_MASTER_KEY:?Set a base64-encoded random 32-byte master key}
     volumes:
@@ -21,8 +32,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    mem_limit: 1g
-    pids_limit: 256
+    # Operator resource budgets; no application-level task-count limit.
+    mem_limit: ${CDC_CONTAINER_MEMORY:-1g}
+    pids_limit: ${CDC_CONTAINER_PIDS:-256}
     stop_grace_period: 60s
     restart: unless-stopped
 volumes:

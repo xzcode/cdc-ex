@@ -57,3 +57,7 @@ mvn -B -ntp clean verify
 [范围与限制](V1_SCOPE.md) · [架构](ARCHITECTURE.md) · [连接器接口](CONNECTORS.md) · [映射](MAPPINGS.md) · [安全](SECURITY.md) · [阶段交付](ROADMAP.md) · [验收](ACCEPTANCE.md) · [发布说明](RELEASE_NOTES.md)
 
 发布附件包含经过验收的 JAR、对应源码、SHA-256 校验、CycloneDX SBOM、实际打包依赖清单、构建来源以及实测工作负载报告。项目自身许可证尚未确定，第三方组件遵循各自许可证。
+
+## 可选管理数据库（当前开发分支）
+
+默认 SQLite，也可选 MySQL 或 MongoDB 保存加密连接、任务、状态及操作日志。任务数量不设固定上限；实际并发受机器资源及源端、目标端安全约束影响。每个任务的 SQLite WAL 与原生检查点仍保留在本地。已有实例不可直接切换数据库类型，需先完成明确的迁移。配置见 [管理数据库](CONTROL_DATABASE.md)。

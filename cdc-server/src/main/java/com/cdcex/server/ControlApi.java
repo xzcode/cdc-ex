@@ -9,8 +9,8 @@ import java.util.*;
 @RestController
 @RequestMapping("/api")
 public final class ControlApi {
-    private final ControlStore store;private final ConnectorRegistry registry;private final TaskManager tasks;
-    public ControlApi(ControlStore store,ConnectorRegistry registry,TaskManager tasks){this.store=store;this.registry=registry;this.tasks=tasks;}
+    private final ControlRepository store;private final ConnectorRegistry registry;private final TaskManager tasks;
+    public ControlApi(ControlRepository store,ConnectorRegistry registry,TaskManager tasks){this.store=store;this.registry=registry;this.tasks=tasks;}
     public record ConnectionInput(String id,String name,Endpoint endpoint){}
     public record ComparisonInput(boolean sourceQuiescent,int maxRows){}
     public record LimitsInput(long journalBytes,long journalEvents,int batchSize,int maxFailures){}

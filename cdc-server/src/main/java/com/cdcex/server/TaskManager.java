@@ -9,12 +9,12 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class TaskManager implements AutoCloseable {
-    private final ControlStore store;private final ConnectorRegistry registry;private final Path directory;
+    private final ControlRepository store;private final ConnectorRegistry registry;private final Path directory;
     private final ExecutorService executor=Executors.newVirtualThreadPerTaskExecutor();
     private final Map<String,Worker> active=new ConcurrentHashMap<>();
     private final Map<String,TaskRuntime.Health> completed=new ConcurrentHashMap<>();
     private final AtomicBoolean closing=new AtomicBoolean();
-    public TaskManager(ControlStore store,ConnectorRegistry registry,Path directory)throws Exception{this.store=store;this.registry=registry;this.directory=directory;store.recoverInterrupted();}
+    public TaskManager(ControlRepository store,ConnectorRegistry registry,Path directory)throws Exception{this.store=store;this.registry=registry;this.directory=directory;store.recoverInterrupted();}
     Endpoint connection(String id)throws Exception{return CdcApplication.JSON.readValue(store.get("connection",id).json(),Endpoint.class);}
     TaskDefinition definition(String id)throws Exception{return CdcApplication.JSON.readValue(store.get("task",id).json(),TaskDefinition.class);}
     TaskSpec specification(String id)throws Exception{TaskDefinition d=definition(id);return d.resolve(connection(d.sourceConnectionId()),connection(d.sinkConnectionId()));}
@@ -52,8 +52,9 @@ public final class TaskManager implements AutoCloseable {
     }
     public synchronized void start(String id)throws Exception{
         if(closing.get()||active.containsKey(id))throw new IllegalStateException("Task is already running or server is stopping");
-        if(active.size()>=4)throw new IllegalStateException("The single-node limit is four active tasks");
-        Worker worker=new Worker(id,specification(id));active.put(id,worker);store.state(id,"STARTING",null);store.audit("START_TASK",id,"REQUESTED");executor.submit(worker);
+        Worker worker=new Worker(id,specification(id));active.put(id,worker);
+        try{store.state(id,"STARTING",null);store.audit("START_TASK",id,"REQUESTED");executor.submit(worker);}
+        catch(Exception e){active.remove(id,worker);try{store.state(id,"STOPPED","START_REQUEST_FAILED");}catch(Exception ignored){}throw e;}
     }
     public synchronized void stop(String id,boolean pause)throws Exception{
         store.get("task",id);Worker worker=active.get(id);
