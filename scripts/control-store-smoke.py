@@ -103,7 +103,17 @@ try:
     wait(lambda:all(sql(f"SELECT COUNT(*) FROM dst.items_{i}")== "2" for i in range(1,count+1)))
     assert all(started(i) for i in range(1,count+1))
     for i in range(1,count+1):request(f"/tasks/task-{i}/pause","POST")
-    wait(lambda:all(status(i)=="PAUSED" for i in range(1,count+1)))
+    def paused_all():
+        states=[status(i) for i in range(1,count+1)]
+        assert not any(s=="BLOCKED" for s in states), "Graceful pause unexpectedly blocked: "+str(states)
+        return all(s=="PAUSED" for s in states)
+    wait(paused_all)
+    # Verify the stopped generation is actually resumable after the native close.
+    sql("INSERT INTO src.items VALUES(3,'after-pause')")
+    for i in range(1,count+1):request(f"/tasks/task-{i}/start","POST")
+    wait(lambda:all(sql(f"SELECT COUNT(*) FROM dst.items_{i}")== "3" for i in range(1,count+1)))
+    for i in range(1,count+1):request(f"/tasks/task-{i}/pause","POST")
+    wait(paused_all)
     assert request("/audit")
     for i in range(1,count+1):assert (state/"tasks"/f"task-{i}"/"journal.db").exists()
     print(f"{kind}: real metadata CRUD, credential preservation, owner/key checks, {count} simultaneous CDC tasks, crash and resume passed.")

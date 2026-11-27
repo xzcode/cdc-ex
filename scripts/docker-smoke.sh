@@ -37,7 +37,21 @@ PY
 }
 trap cleanup EXIT
 if [[ "${CDC_TEST_DOCKER_SKIP_BUILD:-false}" != true ]]; then
-  docker build --pull --tag "$image" .
+  if [[ -n "${CDC_TEST_DOCKER_DISTRIBUTION:-}" ]]; then
+    verified="$(realpath "$CDC_TEST_DOCKER_DISTRIBUTION")"
+    python3 - "$verified" "$(git rev-parse HEAD)" "$(cat VERSION)" <<'PY'
+import hashlib,json,pathlib,sys
+folder=pathlib.Path(sys.argv[1])
+build=json.loads((folder/'build.json').read_text())
+assert build['commit']==sys.argv[2] and build['version']==sys.argv[3], 'Tested binary has different provenance'
+assert build['jarSha256']==hashlib.sha256((folder/'cdc-ex.jar').read_bytes()).hexdigest(), 'Tested binary hash mismatch'
+PY
+    mkdir "$work/tested-artifact"
+    cp "$verified/cdc-ex.jar" "$work/tested-artifact/cdc-ex.jar"
+    DOCKER_BUILDKIT=1 docker build --pull --target tested --build-context "tested-artifact=$work/tested-artifact" --tag "$image" .
+  else
+    docker build --pull --tag "$image" .
+  fi
   built=true
 else
   [[ $# == 1 ]] || { echo 'An explicit image is required when skipping the Docker build' >&2; exit 1; }

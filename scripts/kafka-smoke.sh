@@ -53,7 +53,7 @@ ready_broker(){
   for i in $(seq 1 90); do if kafka_cli kafka-topics.sh --list >/dev/null 2>&1; then return 0; fi; sleep 1; done
   echo 'Kafka broker did not become ready'; return 1
 }
-sql(){ docker exec -e "MYSQL_PWD=$password" "$mysql" mysql -uroot -N -B -e "$1"; }
+sql(){ docker exec -e "MYSQL_PWD=$password" "$mysql" mysql -h127.0.0.1 -uroot -N -B -e "$1"; }
 ready_broker
 mysql_ready=false
 for i in $(seq 1 90); do
@@ -121,10 +121,25 @@ sql 'INSERT INTO src.items VALUES(6,"broker-recovery",6.25);'
 sleep 2
 docker start "$broker" >/dev/null
 ready_broker
-for id in publish forward consume; do
-  if ! kill -0 "${pids[$id]}" 2>/dev/null; then wait "${pids[$id]}" 2>/dev/null || true; start "$id"; fi
+# A metadata request that was already in flight during the outage can fail
+# just after the broker comes back. A blocked worker requires a same-generation
+# restart; do not race one instantaneous liveness check or reset any offsets.
+declare -A restarted=()
+recovered=false
+for i in $(seq 1 120); do
+  for id in publish forward consume; do
+    if ! kill -0 "${pids[$id]}" 2>/dev/null; then
+      if [[ -n "${restarted[$id]:-}" ]]; then echo "Pipeline task exited after recovery restart: $id"; exit 1; fi
+      wait "${pids[$id]}" 2>/dev/null || true
+      echo "Restarting retained generation after broker outage: $id"
+      start "$id"; restarted[$id]=1
+    fi
+  done
+  if [[ "$(sql 'SELECT name FROM dst.items WHERE id=6')" == broker-recovery ]]; then recovered=true; break; fi
+  sleep 1
 done
-assert_sql 'SELECT name FROM dst.items WHERE id=6' 'broker-recovery'
+[[ "$recovered" == true ]] || { echo 'Broker recovery did not deliver retained row'; exit 1; }
+for id in publish forward consume; do kill -0 "${pids[$id]}" 2>/dev/null || { echo "Pipeline task exited during recovery: $id"; exit 1; }; done
 stop publish
 stop forward
 sleep 1

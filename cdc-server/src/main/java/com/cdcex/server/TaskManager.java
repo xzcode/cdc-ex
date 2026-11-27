@@ -130,12 +130,21 @@ public final class TaskManager implements AutoCloseable {
             try{
                 validateSpec(id,spec);if(stopping.get())return;
                 runner=TaskRunner.open(spec,taskDirectory(id),registry);
-                if(stopping.get())runner.runtime().requestStop();store.state(id,"CAPTURING",null);runner.run();state=pause?"PAUSED":"STOPPED";
+                synchronized(TaskManager.this){
+                    if(stopping.get())runner.runtime().requestStop();
+                    else store.state(id,"CAPTURING",null);
+                }
+                runner.run();state=pause?"PAUSED":"STOPPED";
             }catch(Exception e){state="BLOCKED";var failure=Failure.describe(e);error=failure.code()+": "+failure.message();System.err.println("Task "+id+" blocked ["+failure.code()+"] at "+failure.location());}
             finally{
                 if(runner!=null){try{completed.put(id,runner.runtime().health());}catch(Exception ignored){}try{runner.close();}catch(Exception e){state="BLOCKED";error="STATE_CLOSE_FAILED";}}
-                try{store.state(id,stopping.get()&&error==null?(pause?"PAUSED":"STOPPED"):state,error);store.audit("TASK_FINISHED",id,error==null?state:error);}catch(Exception ignored){}
-                active.remove(id,this);
+                // Stop/start and the terminal state transition share the manager lock.
+                // A late pause must not overwrite the completed worker with PAUSING.
+                synchronized(TaskManager.this){
+                    String terminal=stopping.get()&&error==null?(pause?"PAUSED":"STOPPED"):state;
+                    try{store.state(id,terminal,error);store.audit("TASK_FINISHED",id,error==null?terminal:error);}catch(Exception ignored){}
+                    finally{active.remove(id,this);}
+                }
             }
         }
     }

@@ -187,7 +187,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: tested-distribution
+          path: target/tested
       - run: bash scripts/docker-smoke.sh
+        env:
+          CDC_TEST_DOCKER_DISTRIBUTION: target/tested
 
   packaging:
     name: Release artifact integrity

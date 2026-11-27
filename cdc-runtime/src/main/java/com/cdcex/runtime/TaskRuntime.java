@@ -28,14 +28,16 @@ public final class TaskRuntime {
         Future<?> capture=executor.submit(()->{ source.run(batch->{
             long bytes=0;
             for(ChangeEvent event:batch){long size=EventCodec.json(event).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;if(size>8L*1024*1024||(bytes+=size)>64L*1024*1024)throw new IllegalStateException("Capture batch exceeds the supported event or batch byte limit");}
-            while(!stopping.get()){
+            // A graceful stop can race with a native batch or heartbeat already handed to us.
+            // Persist it if capacity permits. No successful return (and therefore no source
+            // acknowledgement) is allowed for a batch that could not be committed.
+            while(true){
                 try{journal.append(batch);return;}
                 catch(SqliteJournal.CapacityException capacity){
-                    if(journal.stats().pending()==0)throw capacity;
+                    if(stopping.get()||journal.stats().pending()==0)throw capacity;
                     Thread.sleep(250);
                 }
             }
-            throw new InterruptedException("Task stopped before accepting capture batch");
         }); return null; });
         boolean failed=false;
         try {

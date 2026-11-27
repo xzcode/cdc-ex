@@ -50,3 +50,7 @@ Repeat the SQL command for the other three source/target choices and cross suite
 The `*-acceptance.json` release asset records elapsed snapshot and DML time, observed events/second, exact database version, hash equality and recovery assertions. Timings include the stated startup/polling overhead on a shared runner. Compare results only with equivalent fixtures; no fixed throughput threshold is invented from one run.
 
 CI artifacts also include JUnit XML and UI screenshots. The release contains the tested JAR, exact source archive, `SHA256SUMS`, CycloneDX SBOM, exact nested JAR/asset inventory, build provenance and this measured report. Verify `sha256sum --check SHA256SUMS` before deployment.
+
+### Optional control stores and container distribution
+
+The control-store integration scripts exercise SQLite, MySQL and MongoDB independently, including real metadata CRUD, credential preservation, key/owner validation, hard-crash recovery, and repeated pause/resume. The MySQL fixture creates five simultaneous CDC tasks; this is a count-cap regression, not a maximum or a scalability guarantee. CI builds the production JAR once and uses its verified hash and source provenance to build the shared runtime stage of the Dockerfile. `scripts/docker-smoke.sh` without `CDC_TEST_DOCKER_DISTRIBUTION` still exercises the normal complete source-build target.

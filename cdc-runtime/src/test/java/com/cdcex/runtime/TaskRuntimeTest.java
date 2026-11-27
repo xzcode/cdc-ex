@@ -40,6 +40,38 @@ class TaskRuntimeTest {
             assertEquals(2,tries.get());assertEquals(0,journal.stats().pending());assertEquals(TaskRuntime.State.STOPPED,task.state());
         }
     }
+    @Test void gracefulStopPersistsFinalCaptureBatchBeforeAcknowledgement() throws Exception {
+        Path path=dir.resolve("stop-race.db");
+        try(var journal=new SqliteJournal(path,100000,100)){
+            CountDownLatch running=new CountDownLatch(1),finishCapture=new CountDownLatch(1),accepted=new CountDownLatch(1);
+            java.util.concurrent.atomic.AtomicReference<Exception> captureFailure=new java.util.concurrent.atomic.AtomicReference<>();
+            SourceConnector source=new SourceConnector(){
+                public void run(DurableReceiver receiver) throws Exception{
+                    running.countDown();finishCapture.await();
+                    try{receiver.accept(List.of(event("last")));receiver.accept(List.of());}
+                    catch(Exception e){captureFailure.set(e);throw e;}
+                    finally{accepted.countDown();}
+                }
+                public void close() throws Exception{
+                    finishCapture.countDown();
+                    if(!accepted.await(5,TimeUnit.SECONDS))throw new IllegalStateException("Capture did not finish");
+                    if(captureFailure.get()!=null)throw captureFailure.get();
+                }
+            };
+            var task=new TaskRuntime(source,new SinkConnector(){public void apply(List<ChangeEvent> events){fail("A stopped task must retain the final batch");}},journal,10,3);
+            try(var executor=Executors.newSingleThreadExecutor()){
+                var future=executor.submit(()->{task.run();return null;});
+                try{assertTrue(running.await(5,TimeUnit.SECONDS));}
+                finally{task.requestStop();}
+                future.get(10,TimeUnit.SECONDS);
+            }
+            assertNull(captureFailure.get());assertEquals(TaskRuntime.State.STOPPED,task.state());
+            assertEquals(1,journal.stats().pending());
+        }
+        try(var journal=new SqliteJournal(path,100000,100)){
+            assertEquals("last",journal.next(1).getFirst().event().id());
+        }
+    }
     @Test void permanentFailureLeavesBatchForRecovery() throws Exception {
         Path path=dir.resolve("blocked.db");
         try(var journal=new SqliteJournal(path,100000,100)){

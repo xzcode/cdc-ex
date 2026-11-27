@@ -11,10 +11,9 @@ COPY . .
 COPY --from=web /web/dist ./cdc-web/dist
 RUN mvn -B -ntp -DskipTests package
 
-FROM eclipse-temurin:21-jre-jammy@sha256:a8bff88f760e87e0c8844f8461f807c203fd5e8f78c951c843024647e965eaf5
+FROM eclipse-temurin:21-jre-jammy@sha256:a8bff88f760e87e0c8844f8461f807c203fd5e8f78c951c843024647e965eaf5 AS runtime
 RUN groupadd --gid 10001 cdc && useradd --uid 10001 --gid cdc --no-create-home cdc \
     && mkdir -p /app /data && chown cdc:cdc /app /data
-COPY --from=build /src/cdc-server/target/cdc-server-*.jar /app/cdc-ex.jar
 COPY --chmod=755 cdc-distribution/healthcheck.sh /app/healthcheck.sh
 ENV CDC_MODE=server CDC_DATA_DIR=/data CDC_BIND=127.0.0.1 CDC_PORT=8080
 USER 10001:10001
@@ -22,3 +21,11 @@ VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["/app/healthcheck.sh"]
 ENTRYPOINT ["java","-XX:MaxRAMPercentage=70","-Duser.timezone=UTC","-jar","/app/cdc-ex.jar"]
+
+# CI supplies a separate, checksum-verified named context; no second Maven build.
+FROM runtime AS tested
+COPY --from=tested-artifact cdc-ex.jar /app/cdc-ex.jar
+
+# Default target: keep the normal source-build experience for Docker Compose.
+FROM runtime AS source
+COPY --from=build /src/cdc-server/target/cdc-server-*.jar /app/cdc-ex.jar
