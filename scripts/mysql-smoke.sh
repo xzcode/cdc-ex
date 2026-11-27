@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Isolated MySQL / MariaDB acceptance, including cross-dialect directions.
 set -euo pipefail
-jar="$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")"
+jar="$(realpath "${1:-cdc-server/target/cdc-server-$(cat VERSION).jar}")"
 work="$(mktemp -d)"
 src="cdc-ex-src-$$-$RANDOM"
 dst="cdc-ex-dst-$$-$RANDOM"

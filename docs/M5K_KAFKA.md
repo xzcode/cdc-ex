@@ -107,7 +107,7 @@ MySQL source -> Kafka topic A -> Kafka topic B -> MySQL target
 The script checks snapshot, insert/update/delete, primary-key change, consumer restart, destination failure/retry, broker outage/recovery and an invalid envelope that must leave source offsets unchanged. The fixtures use exact `apache/kafka:4.0.0` and `mysql:8.4.13` image tags; the script also prints the versions actually running. It removes only containers/volumes created by the fixture.
 
 ```bash
-bash scripts/kafka-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.1.jar
+bash scripts/kafka-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.2.jar
 
 # Include the broker-specific Java integration suite while the disposable broker is alive:
 CDC_TEST_KAFKA_BROKER_SUITE=true bash scripts/kafka-smoke.sh

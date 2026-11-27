@@ -99,7 +99,7 @@ The delivery guarantee is at least once. Target primary-key upserts/deletes make
 ## Fixture
 
 ```bash
-bash scripts/postgresql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.1.jar
+bash scripts/postgresql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.2.jar
 ```
 
 The script creates its own disposable local PostgreSQL container, random credential, schemas, slot, publication and task directory. It tests snapshot-only and empty-table restart, exact typed values, an unchanged large TOAST value, insert/update/delete, key changes, offline catch-up, hard process kill/replay, a destination failure, target schema drift/repair, external slot advancement, missing-slot rejection, recreated-slot gaps and blocked `TRUNCATE` followed by a blocked restart. Failure checks require the CLI's explicit blocked exit code; a timeout does not count as a passing rejection. It removes only its own container, volumes and temporary directory. Plaintext is explicitly enabled only for this isolated loopback fixture.

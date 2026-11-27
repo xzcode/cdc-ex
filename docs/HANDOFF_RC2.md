@@ -1,0 +1,7 @@
+# RC.2 handoff
+
+The original rc.1 release and tag are immutable for this development flow. RC.2 combines UI polish and optional management repositories, without an application task-count quota. SQLite remains the default control store and the per-task journal for every backend.
+
+The previous CI run 45956199659 exposed pause/close races after management-store restart, a Kafka recovery harness race, and Maven Central HTTP 429 during the redundant Docker image build. The follow-up retains in-flight capture batches during orderly shutdown; an append that exceeds capacity still fails without source acknowledgement. Terminal task state updates share the same lock as start/stop. A deterministic runtime regression and real-service pause/resume exercise the fix. The Kafka fixture permits one same-generation restart per worker after broker recovery, with offsets retained. CI builds the tested runtime Docker stage from the exact artifact instead of rebuilding dependencies; normal Compose source builds remain available.
+
+RC.2 publishing is automatic only when the exact new master commit passes all V1 CI gates. Do not reuse the old rc.1 binary, bypass a failed check, or claim a release until its tag and assets exist. External-store migration of existing deployments, distributed scheduling, and production-scale concurrency certification remain out of scope. See CONTROL_DATABASE.md for the backend selection and backup requirements.

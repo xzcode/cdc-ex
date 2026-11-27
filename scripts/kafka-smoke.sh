@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Disposable three-task pipeline: MySQL -> Kafka A -> Kafka B -> MySQL.
 set -euo pipefail
-jar="$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")"
+jar="$(realpath "${1:-cdc-server/target/cdc-server-$(cat VERSION).jar}")"
 work="$(mktemp -d)"
 broker="cdc-ex-kafka-$$-$RANDOM"
 mysql="cdc-ex-kafka-mysql-$$-$RANDOM"

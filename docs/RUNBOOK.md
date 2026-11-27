@@ -1,6 +1,6 @@
 # Operator runbook
 
-This runbook describes the `0.1.0-rc.1` implementation. Read the [M9 handoff](HANDOFF_M9.md) and release acceptance report for the exact build, database versions and observed test results. An implemented connector or an example file does not certify every database version or source/sink pairing.
+This runbook describes the `0.1.0-rc.2` implementation. Read the [M9 handoff](HANDOFF_M9.md) and release acceptance report for the exact build, database versions and observed test results. An implemented connector or an example file does not certify every database version or source/sink pairing.
 
 CDC EX runs one-way, single-table or single-collection tasks. MySQL, MariaDB, MongoDB and PostgreSQL have native change capture. ClickHouse has explicitly limited source modes. Kafka is an optional endpoint; direct database tasks do not need a broker. The management server has no hard-coded active task-count cap and protects task/data-directory ownership within a single process deployment. This is not an HA deployment protocol.
 
@@ -12,7 +12,7 @@ Use a full Java 21 JDK, Maven and the Node.js version required by `cdc-web/packa
 npm --prefix cdc-web ci
 npm --prefix cdc-web run build
 mvn -B -ntp clean verify
-java -jar cdc-server/target/cdc-server-0.1.0-rc.1.jar
+java -jar cdc-server/target/cdc-server-0.1.0-rc.2.jar
 ```
 
 The last command prints usage and exits unless a launch mode is configured. Building the UI before Maven includes its assets in the executable JAR. A Java runtime is sufficient to run the packaged JAR. The Dockerfile builds the UI and Java modules in separate pinned build stages.
@@ -70,7 +70,7 @@ export CDC_DATA_DIR="$HOME/.local/share/cdc-ex"
 export CDC_BIND=127.0.0.1
 export CDC_PORT=8080
 umask 077
-java -Duser.timezone=UTC -jar cdc-server/target/cdc-server-0.1.0-rc.1.jar
+java -Duser.timezone=UTC -jar cdc-server/target/cdc-server-0.1.0-rc.2.jar
 ```
 
 Open `http://127.0.0.1:8080` and supply the administrative token to the UI. `GET /api/health` is public liveness only. It does not assert that a task is healthy or caught up. All connection, task, comparison and audit APIs require bearer authentication.
@@ -119,8 +119,8 @@ chmod 600 "$HOME/.config/cdc-ex/tasks/orders.json"
 export CDC_RUN=true
 export CDC_TASK_FILE="$HOME/.config/cdc-ex/tasks/orders.json"
 export CDC_DATA_DIR="$HOME/.local/share/cdc-ex-orders"
-CDC_PREFLIGHT_ONLY=true java -jar cdc-server/target/cdc-server-0.1.0-rc.1.jar
-java -jar cdc-server/target/cdc-server-0.1.0-rc.1.jar
+CDC_PREFLIGHT_ONLY=true java -jar cdc-server/target/cdc-server-0.1.0-rc.2.jar
+java -jar cdc-server/target/cdc-server-0.1.0-rc.2.jar
 ```
 
 Use a different task ID, data directory and replication-client ID for each independent task. Stop the foreground process with `SIGTERM`/Ctrl-C and allow it to close. The shutdown hook waits up to 45 seconds; service/container shutdown budgets must allow orderly closure. A hard kill is a crash-recovery case, not a normal pause.

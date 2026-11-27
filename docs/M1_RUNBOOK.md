@@ -39,9 +39,9 @@ Delivered payloads are now compacted into permanent identity/digest receipts. Th
 ## Fixtures
 
 ```bash
-bash scripts/mysql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.1.jar
+bash scripts/mysql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.2.jar
 CDC_TEST_SOURCE_TYPE=MYSQL CDC_TEST_TARGET_TYPE=MARIADB \
-  bash scripts/mysql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.1.jar
+  bash scripts/mysql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.2.jar
 ```
 
 MySQL→MySQL, MySQL→MariaDB, MariaDB→MySQL and MariaDB→MariaDB are separate disposable acceptance cases. Other database pairings have separate cross-system fixtures. Actual executions and remaining gaps are recorded centrally; this runbook does not assert that a particular artifact passed a fixture.

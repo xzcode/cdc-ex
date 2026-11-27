@@ -2,7 +2,7 @@
 # Authenticated API, encrypted configuration and exclusive process ownership.
 # Set CDC_TEST_SECURITY_DATABASE=true to include a disposable real MySQL task through the API.
 set -euo pipefail
-jar="$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")"
+jar="$(realpath "${1:-cdc-server/target/cdc-server-$(cat VERSION).jar}")"
 work="$(mktemp -d)"
 chmod 700 "$work"
 state="$work/state"

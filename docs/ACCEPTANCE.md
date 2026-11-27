@@ -1,6 +1,6 @@
 # V1 release acceptance
 
-The authority for a published `0.1.0-rc.1` artifact is its `*-build.json`, which records the exact source commit, workflow run and tested binary/SBOM hashes. The release page links that successful V1 CI run. A local test from an earlier snapshot is useful evidence but does not replace the final commit gate.
+The authority for each published release-candidate artifact is its `*-build.json`, which records the exact source commit, workflow run and tested binary/SBOM hashes. The release page links that successful V1 CI run. A local test from an earlier snapshot is useful evidence but does not replace the final commit gate.
 
 ## Reproducible gate
 
@@ -29,7 +29,7 @@ This covers the explicit scripts and their assertions. It does not establish all
 Build the UI and JAR as described in the root README. Acceptance scripts require Docker, Bash, OpenSSL, Python 3 and Java 21; Kafka JUnit fixtures also require Maven. Each script uses disposable, uniquely named services and credentials and removes only its own resources. Services use bounded memory; run sequentially on a small host.
 
 ```bash
-JAR=cdc-server/target/cdc-server-0.1.0-rc.1.jar
+JAR=cdc-server/target/cdc-server-0.1.0-rc.2.jar
 CDC_TEST_SOURCE_TYPE=MYSQL CDC_TEST_TARGET_TYPE=MARIADB bash scripts/mysql-smoke.sh "$JAR"
 bash scripts/mongodb-smoke.sh "$JAR"
 bash scripts/postgresql-smoke.sh "$JAR"

@@ -1,6 +1,6 @@
 # V1 implemented scope and limits
 
-Version `0.1.0-rc.1` is a single-node release candidate. The complete V1 CI gate must pass before publication. See [ACCEPTANCE.md](ACCEPTANCE.md) for the exact fixtures; a provider's availability does not prove every possible source/target pairing.
+Version `0.1.0-rc.2` is a single-node release candidate. The complete V1 CI gate must pass before publication. See [ACCEPTANCE.md](ACCEPTANCE.md) for the exact fixtures; a provider's availability does not prove every possible source/target pairing.
 
 ## Capabilities
 

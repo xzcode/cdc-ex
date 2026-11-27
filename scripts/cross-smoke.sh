@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Isolated heterogeneous fixtures. Every task is one-way and has its own source/target scope.
 set -euo pipefail
-jar=$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")
+jar=$(realpath "${1:-cdc-server/target/cdc-server-$(cat VERSION).jar}")
 work=$(mktemp -d)
 mysql_name="cdcex-cross-sql-$RANDOM-$$"
 mongo_name="cdcex-cross-mongo-$RANDOM-$$"

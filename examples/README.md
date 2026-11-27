@@ -1,6 +1,6 @@
 # Configuration examples
 
-These examples match `0.1.0-rc.1` task/API classes. They contain reserved example hostnames and placeholder credentials. Copy them outside source control, replace every placeholder, review prerequisites, then run preflight. Endpoint option values are strings; task limits are JSON numbers. JSON does not expand environment-variable references.
+These examples match `0.1.0-rc.2` task/API classes. They contain reserved example hostnames and placeholder credentials. Copy them outside source control, replace every placeholder, review prerequisites, then run preflight. Endpoint option values are strings; task limits are JSON numbers. JSON does not expand environment-variable references.
 
 Read the [operator runbook](../docs/RUNBOOK.md), [mapping contract](../docs/MAPPINGS.md) and [actual acceptance results](../docs/ACCEPTANCE.md). Configuration examples do not certify an unrun database pairing.
 
@@ -26,11 +26,11 @@ TLS is enabled in these examples. Replace certificate/truststore paths with real
 ```bash
 CDC_RUN=true CDC_PREFLIGHT_ONLY=true \
 CDC_TASK_FILE=/protected/orders.json CDC_DATA_DIR=/persistent/orders-generation-1 \
-java -jar cdc-server/target/cdc-server-0.1.0-rc.1.jar
+java -jar cdc-server/target/cdc-server-0.1.0-rc.2.jar
 
 CDC_RUN=true \
 CDC_TASK_FILE=/protected/orders.json CDC_DATA_DIR=/persistent/orders-generation-1 \
-java -jar cdc-server/target/cdc-server-0.1.0-rc.1.jar
+java -jar cdc-server/target/cdc-server-0.1.0-rc.2.jar
 ```
 
 Keep the same task semantics and state when resuming. Changing mappings, source modes or physical resources requires a reviewed generation and reconciled destination; a new directory alone does not reconcile data.

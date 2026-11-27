@@ -1,6 +1,6 @@
 # M0–M9 delivery map
 
-The `0.1.0-rc.1` implementation covers every stage below. Release publication is conditional on the exact commit passing the aggregate V1 CI gate. This map distinguishes implemented deliverables from the evidence used to accept them; it does not certify untested versions or pairings.
+The `0.1.0-rc.2` implementation covers every stage below. Release publication is conditional on the exact commit passing the aggregate V1 CI gate. This map distinguishes implemented deliverables from the evidence used to accept them; it does not certify untested versions or pairings.
 
 | Stage | Implemented deliverable | Acceptance gate |
 | --- | --- | --- |
@@ -20,6 +20,6 @@ Exact fixtures: MySQL 8.4.13, MariaDB 11.4.13, MongoDB 8.0.15, PostgreSQL 17.7, 
 
 Deferred work includes distributed scheduling/HA, source fan-out reuse, multi-master conflict handling, automatic schema migration, wider SQL/BSON mappings, additional Kafka envelope formats, stronger cross-system transactional delivery and receipt retention with a separately proven safe reclamation protocol.
 
-Post-M9 UI refinement: [UI polish handoff](HANDOFF_UI_POLISH.md). This is presentation-only; the published rc.1 remains unchanged until a new validated candidate is explicitly versioned.
+Post-M9 UI refinement: [UI polish handoff](HANDOFF_UI_POLISH.md). Included in the rc.2 candidate with the original rc.1 tag and assets preserved.
 
-Post-rc.1 management storage: selectable SQLite/MySQL/MongoDB control repositories and removal of the fixed four-active-task gate. See [CONTROL_DATABASE.md](CONTROL_DATABASE.md); the local CDC journal contract is unchanged.
+RC.2 management storage: selectable SQLite/MySQL/MongoDB control repositories and removal of the fixed four-active-task gate. See [CONTROL_DATABASE.md](CONTROL_DATABASE.md); the local CDC journal contract is unchanged.

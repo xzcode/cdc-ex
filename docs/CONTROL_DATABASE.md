@@ -1,4 +1,4 @@
-# Optional management database (post-rc.1)
+# Optional management database (rc.2)
 
 CDC EX separates its **control repository** (connections, encrypted task definitions, status, identities, audit) from per-task **delivery journals and native capture checkpoints**. SQLite remains the default management repository; MySQL and MongoDB are optional alternatives. The task journal always uses local SQLite WAL with durable acknowledgements.
 
@@ -41,6 +41,6 @@ Existing SQLite instances continue unchanged. Automatic SQLite-to-MySQL/MongoDB 
 
 Stop tasks and the server before taking coordinated backups of both the external database and the complete local data directory. Preserve the same master key separately. Restore them together to one owner. Encryption protects the connection/task JSON body, not the journal payload or all metadata. Audit retention remains bounded (last 100 exposed, up to 10,000 stored).
 
-This change does not itself establish production-scale concurrency. The published rc.1 release remains unchanged.
+This change does not itself establish production-scale concurrency. The rc.1 tag and its published assets remain unchanged; rc.2 is gated by its own complete CI run.
 
 The integration suite covers a real metadata restart, key/owner checks, pause and resume after a process crash, and resuming a gracefully paused generation without clearing checkpoints. MySQL exercises five simultaneously running tasks to detect any regression of the former count cap; other management backends are tested independently.

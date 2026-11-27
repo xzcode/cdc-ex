@@ -31,9 +31,9 @@ The capture batch is durable before source acknowledgement; target transactions 
 
 ```bash
 CDC_TEST_SOURCE_TYPE=MARIADB CDC_TEST_TARGET_TYPE=MARIADB \
-  bash scripts/mysql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.1.jar
+  bash scripts/mysql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.2.jar
 CDC_TEST_SOURCE_TYPE=MARIADB CDC_TEST_TARGET_TYPE=MYSQL \
-  bash scripts/mysql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.1.jar
+  bash scripts/mysql-smoke.sh cdc-server/target/cdc-server-0.1.0-rc.2.jar
 ```
 
 All four MySQL/MariaDB directions are separate acceptance cases. The [MySQL-to-MariaDB example](../examples/tasks/mysql-to-mariadb.json) illustrates the current task shape. See [M9 handoff](HANDOFF_M9.md) for executed scenarios; this runbook does not claim an unrun fixture passed.

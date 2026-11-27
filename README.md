@@ -4,7 +4,7 @@
 
 CDC EX is a self-hosted, one-way change capture and synchronization service. It includes native database capture, optional Kafka endpoints, a bounded durable journal, explicit mappings, and an English/Simplified Chinese management UI.
 
-**Version: 0.1.0-rc.1.** The M1–M9 implementation is present. A release candidate is published only after the complete [V1 CI](https://github.com/xzcode/cdc-ex/actions/workflows/ci.yml) passes for the exact source commit and packaged JAR. See [acceptance scope](docs/ACCEPTANCE.md), [release notes](docs/RELEASE_NOTES.md) and [known limits](docs/V1_SCOPE.md). Tested configurations are not a claim that every database version or every source/target pairing is compatible.
+**Version: 0.1.0-rc.2.** The M1–M9 implementation is present. A release candidate is published only after the complete [V1 CI](https://github.com/xzcode/cdc-ex/actions/workflows/ci.yml) passes for the exact source commit and packaged JAR. See [acceptance scope](docs/ACCEPTANCE.md), [release notes](docs/RELEASE_NOTES.md) and [known limits](docs/V1_SCOPE.md). Tested configurations are not a claim that every database version or every source/target pairing is compatible.
 
 ## Connectors
 
@@ -34,7 +34,7 @@ docker compose up -d --build
 
 Open **http://127.0.0.1:8080** and enter the admin token from `.env`. Create source and target connections, test their roles, create a task, validate its mapping and start it. Database resources, publications/slots and Kafka topics must already exist. Credentials are encrypted in the control store; the separate deployment key is required to reopen that store. The Compose container uses UID 10001, a read-only root filesystem and a persistent `/data` volume. Database hosts in container connections must be reachable from that container; `127.0.0.1` means the CDC container itself.
 
-For a downloaded release JAR, Java 21 is sufficient. Configure `CDC_MODE=server`, `CDC_DATA_DIR`, `CDC_ADMIN_TOKEN` and either `CDC_MASTER_KEY` or a protected `CDC_MASTER_KEY_FILE`; run `java -jar cdc-ex-0.1.0-rc.1.jar`. Binding defaults to loopback. [RUNBOOK.md](docs/RUNBOOK.md) contains complete JAR, API, TLS, backup and recovery instructions.
+For a downloaded release JAR, Java 21 is sufficient. Configure `CDC_MODE=server`, `CDC_DATA_DIR`, `CDC_ADMIN_TOKEN` and either `CDC_MASTER_KEY` or a protected `CDC_MASTER_KEY_FILE`; run `java -jar cdc-ex-0.1.0-rc.2.jar`. Binding defaults to loopback. [RUNBOOK.md](docs/RUNBOOK.md) contains complete JAR, API, TLS, backup and recovery instructions.
 
 ## Build and run a single task
 
@@ -46,7 +46,7 @@ npm --prefix cdc-web run build
 mvn -B -ntp clean verify
 CDC_RUN=true CDC_TASK_FILE=/absolute/path/task.json \
   CDC_DATA_DIR=/absolute/path/task-state \
-  java -jar cdc-server/target/cdc-server-0.1.0-rc.1.jar
+  java -jar cdc-server/target/cdc-server-0.1.0-rc.2.jar
 ```
 
 Start with an [example task](examples/tasks), replace its explicit configuration placeholders, and protect the resulting file. `CDC_PREFLIGHT_ONLY=true` validates prerequisites without starting capture. A task captures one table, collection or topic; managed mode has no fixed active task-count cap. Actual concurrency depends on host resources and endpoint ownership.
@@ -62,7 +62,7 @@ The journal compacts acknowledged payloads into retained replay receipts. Defaul
 - [Scope and limitations](docs/V1_SCOPE.md), [architecture](docs/ARCHITECTURE.md), [connector SPI](docs/CONNECTORS.md), [mappings](docs/MAPPINGS.md).
 - [Operations](docs/RUNBOOK.md), [security](docs/SECURITY.md), [milestone map](docs/ROADMAP.md).
 - [Acceptance matrix and reproducible commands](docs/ACCEPTANCE.md), [release process](docs/HANDOFF_M9.md).
-- V1 CI builds the UI and JAR once, then runs SQL four-way tests, native connectors, Kafka transport and recovery, mapped heterogeneous paths, real browser tasks, measured fault recovery, Docker persistence and release integrity checks.
+- V1 CI builds the UI and JAR once, then runs SQL four-way tests, native connectors, Kafka transport and recovery, mapped heterogeneous paths, real browser tasks, measured fault recovery, all three management repositories, Docker persistence and release integrity checks.
 - Release assets include that tested JAR, exact source archive, SHA-256 checksums, CycloneDX SBOM, packaged dependency inventory, build provenance and measured acceptance report.
 
 ## License
@@ -71,4 +71,4 @@ A project license has not yet been selected. Apache-2.0 was proposed during desi
 
 ### Optional management database
 
-The current development branch supports SQLite (default), MySQL or MongoDB for encrypted connection/task definitions, state, identities and audit records. Per-task journals and native checkpoints remain local in every mode. See [Control database configuration](docs/CONTROL_DATABASE.md). Switching an existing deployment requires an explicit migration. Published rc.1 remains unchanged.
+CDC EX supports SQLite (default), MySQL or MongoDB for encrypted connection/task definitions, state, identities and audit records. Per-task journals and native checkpoints remain local in every mode. See [Control database configuration](docs/CONTROL_DATABASE.md). Switching an existing deployment requires an explicit migration. See the release page for the exact validated candidate.

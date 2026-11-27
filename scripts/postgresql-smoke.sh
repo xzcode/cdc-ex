@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Disposable PostgreSQL 17 acceptance. Never points at an existing service.
 set -euo pipefail
-jar="$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")"
+jar="$(realpath "${1:-cdc-server/target/cdc-server-$(cat VERSION).jar}")"
 work="$(mktemp -d)"
 container="cdc-ex-pg-$$-$RANDOM"
 password="$(openssl rand -hex 18)"

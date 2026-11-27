@@ -4,7 +4,7 @@
 
 CDC EX 是一个自托管的单向数据库变更捕获与同步工具，包含原生 CDC 连接器、可选 Kafka 输入输出、持久化事件日志、显式字段映射，以及英文/简体中文管理界面。
 
-**当前版本：0.1.0-rc.1，M1–M9 功能已实现。** 发布流程要求完整 [V1 CI](https://github.com/xzcode/cdc-ex/actions/workflows/ci.yml) 对同一提交、同一份 JAR 全部通过。具体版本和链路以[验收矩阵](ACCEPTANCE.md)、发布附件中的构建信息与测试报告为准；连接器存在不表示所有数据库版本或任意两端组合都已验证。
+**当前版本：0.1.0-rc.2，M1–M9 功能已实现。** 发布流程要求完整 [V1 CI](https://github.com/xzcode/cdc-ex/actions/workflows/ci.yml) 对同一提交、同一份 JAR 全部通过。具体版本和链路以[验收矩阵](ACCEPTANCE.md)、发布附件中的构建信息与测试报告为准；连接器存在不表示所有数据库版本或任意两端组合都已验证。
 
 ## 支持范围
 
@@ -34,7 +34,7 @@ docker compose up -d --build
 
 访问 **http://127.0.0.1:8080**，输入 `.env` 中的管理员令牌。创建源连接和目标连接，按实际角色测试，创建任务并验证映射后启动。连接里的数据库地址必须从容器内部可达；容器里的 `127.0.0.1` 指向 CDC 容器本身。
 
-JAR 模式需要 Java 21。设置 `CDC_MODE=server`、`CDC_DATA_DIR`、`CDC_ADMIN_TOKEN`，并设置 `CDC_MASTER_KEY` 或受保护的 `CDC_MASTER_KEY_FILE`，然后执行 `java -jar cdc-ex-0.1.0-rc.1.jar`。完整配置、API 示例、权限要求和恢复操作见[运行手册](RUNBOOK.md)。
+JAR 模式需要 Java 21。设置 `CDC_MODE=server`、`CDC_DATA_DIR`、`CDC_ADMIN_TOKEN`，并设置 `CDC_MASTER_KEY` 或受保护的 `CDC_MASTER_KEY_FILE`，然后执行 `java -jar cdc-ex-0.1.0-rc.2.jar`。完整配置、API 示例、权限要求和恢复操作见[运行手册](RUNBOOK.md)。
 
 从源代码构建需要 JDK 21、Maven 3.9、Node 24：
 
@@ -58,6 +58,6 @@ mvn -B -ntp clean verify
 
 发布附件包含经过验收的 JAR、对应源码、SHA-256 校验、CycloneDX SBOM、实际打包依赖清单、构建来源以及实测工作负载报告。项目自身许可证尚未确定，第三方组件遵循各自许可证。
 
-## 可选管理数据库（当前开发分支）
+## 可选管理数据库
 
 默认 SQLite，也可选 MySQL 或 MongoDB 保存加密连接、任务、状态及操作日志。任务数量不设固定上限；实际并发受机器资源及源端、目标端安全约束影响。每个任务的 SQLite WAL 与原生检查点仍保留在本地。已有实例不可直接切换数据库类型，需先完成明确的迁移。配置见 [管理数据库](CONTROL_DATABASE.md)。

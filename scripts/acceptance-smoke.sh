@@ -2,7 +2,7 @@
 # Reproducible, bounded acceptance workload. Operates only on a disposable container.
 set -euo pipefail
 umask 077
-jar=$(realpath "${1:-cdc-server/target/cdc-server-0.1.0-rc.1.jar}")
+jar=$(realpath "${1:-cdc-server/target/cdc-server-$(cat VERSION).jar}")
 report=${CDC_ACCEPTANCE_REPORT:-acceptance-results.json}
 work=$(mktemp -d)
 name="cdcex-acceptance-$RANDOM-$$"
