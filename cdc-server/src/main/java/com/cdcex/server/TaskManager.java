@@ -115,7 +115,7 @@ public final class TaskManager implements AutoCloseable {
             Worker other=active.get(r.id());
             if(other!=null&&source.contains(":innodb:")&&r.sourceIdentity().contains(":innodb:")&&source.substring(0,source.indexOf(":innodb:")).equals(r.sourceIdentity().substring(0,r.sourceIdentity().indexOf(":innodb:")))){
                 Worker owner=active.get(id);TaskSpec candidate=owner==null?specification(id):owner.spec;
-                if(Objects.equals(candidate.source().options().get("replicationServerId"),other.spec.source().options().get("replicationServerId")))throw new IllegalStateException("Another active task owns this replication client ID");
+                if(Long.parseLong(candidate.source().require("replicationServerId"))==Long.parseLong(other.spec.source().require("replicationServerId")))throw new IllegalStateException("Another active task owns this replication client ID");
             }
         }
         Set<String> seen=new HashSet<>();Deque<String> pending=new ArrayDeque<>();pending.add(target);

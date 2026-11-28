@@ -13,43 +13,8 @@ public final class PostgresProvider implements ConnectorProvider {
     @Override public List<String> resources(Endpoint endpoint,String query,int limit)throws Exception{
         var options=new LinkedHashMap<>(endpoint.options());options.put("table","cdc_ex_discovery");var cfg=new PostgresConfig(new Endpoint(endpoint.type(),options));
         List<String> result=new ArrayList<>();
-        try(Connection c=cfg.connect();var s=c.prepareStatement("SELECT table_name FROM information_schema.tables WHERE table_schema=? AND table_type='BASE TABLE' AND strpos(table_name,?)>0 AND table_name ~ '^[A-Za-z_][A-Za-z0-9_]{0,62}(Endpoint endpoint,Role role) throws Exception {
-        PostgresConfig cfg=new PostgresConfig(endpoint);
-        try(Connection c=cfg.connect()) {
-            var schema=PostgresSchema.read(c,cfg,role==Role.SINK);
-            if(role==Role.SOURCE)PostgresSchema.sourcePreflight(c,cfg,schema,true);
-            var inspection=schema.inspection();Map<String,Object> details=new LinkedHashMap<>(inspection.details());
-            if(role==Role.SINK)details.put("empty","t".equals(PostgresSchema.one(c,"SELECT NOT EXISTS (SELECT 1 FROM "+cfg.qualified()+" LIMIT 1)")));
-            return new Inspection(inspection.identity(),inspection.fields(),inspection.keyFields(),details);
-        }
-    }
-    @Override public SourceConnector openSource(Endpoint endpoint,SourceContext context) throws Exception {return new PostgresSource(new PostgresConfig(endpoint),context);}
-    @Override public SinkConnector openSink(Endpoint endpoint,SinkContext context) throws Exception {return new PostgresSink(new PostgresConfig(endpoint));}
-    @Override public List<Map<String,Object>> readRows(Endpoint endpoint,int limit) throws Exception {
-        if(limit<1||limit>100001)throw new IllegalArgumentException("Invalid comparison row limit");
-        PostgresConfig cfg=new PostgresConfig(endpoint);
-        try(Connection c=cfg.connect()) {
-            var schema=PostgresSchema.readForComparison(c,cfg);
-            c.setReadOnly(true);c.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);c.setAutoCommit(false);
-            String names=schema.columns().stream().map(v->PostgresConfig.quote(v.name())).collect(Collectors.joining(","));
-            String order=schema.keys().stream().map(PostgresConfig::quote).collect(Collectors.joining(","));
-            List<Map<String,Object>> rows=new ArrayList<>();
-            try(var q=c.prepareStatement("SELECT "+names+" FROM "+cfg.qualified()+" ORDER BY "+order+" LIMIT ?")) {
-                q.setInt(1,limit);q.setFetchSize(32);long bytes=0;
-                try(var r=q.executeQuery()) {while(r.next()) {
-                    Map<String,Object> row=new LinkedHashMap<>();
-                    for(int i=0;i<schema.columns().size();i++){var col=schema.columns().get(i);row.put(col.name(),PostgresValues.fromJdbc(r,i+1,col.type()));}
-                    bytes+=EventCodec.json(row).getBytes(StandardCharsets.UTF_8).length;
-                    if(bytes>32L*1024*1024)throw new IllegalStateException("Comparison exceeds 32 MiB payload budget");
-                    rows.add(row);
-                }}
-            }
-            return rows;
-        }
-    }
-}
- ORDER BY table_name LIMIT ?")){
-            s.setString(1,cfg.schema());s.setString(2,query.isEmpty()?"":query);s.setInt(3,limit);
+        try(Connection c=cfg.connect();var s=c.prepareStatement("SELECT table_name FROM information_schema.tables WHERE table_schema=? AND table_type='BASE TABLE' AND strpos(table_name::text,?)>0 AND table_name ~ '^[A-Za-z_][A-Za-z0-9_]{0,62}$' ORDER BY table_name LIMIT ?")){
+            s.setString(1,cfg.schema());s.setString(2,query);s.setInt(3,limit);
             try(var r=s.executeQuery()){while(r.next())result.add(r.getString(1));}
         }return result;
     }

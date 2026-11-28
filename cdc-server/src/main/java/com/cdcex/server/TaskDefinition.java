@@ -55,7 +55,9 @@ public record TaskDefinition(String id,String name,String sourceConnectionId,Str
             case "KAFKA"->{if(!overrides.getOrDefault("groupId","").matches("[A-Za-z0-9._-]{1,180}"))throw new IllegalArgumentException("Explicit consumer group is required per resource");}
             default->{}
         }
-        var options=new LinkedHashMap<>(template.options());options.putAll(overrides);return new Endpoint(type,options);
+        var options=new LinkedHashMap<>(template.options());options.putAll(overrides);
+        if(source&&Set.of("MYSQL","MARIADB").contains(type))options.put("replicationServerId",Long.toString(Long.parseLong(overrides.get("replicationServerId"))));
+        return new Endpoint(type,options);
     }
     TaskSpec resolve(Endpoint source,Endpoint sink){return new TaskSpec(id,select(source,sourceOverrides,true),select(sink,sinkOverrides,false),snapshotMode,mapping,journalBytes,journalEvents,batchSize,maxFailures);}
     @Override public String toString(){return "TaskDefinition[id="+id+", configuration=redacted]";}
