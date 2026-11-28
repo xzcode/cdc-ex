@@ -15,6 +15,21 @@ public final class MongoProvider implements ConnectorProvider {
         "sourceModes",List.of("initial","no_data"),"sinkModes",List.of("replace"),
         "nativeCdc",true,"documentEncoding","canonical-extended-json", "topology","replica-set",
         "requiresPrePostImages",true,"requiresKey",true);}
+    @Override public List<String> resources(Endpoint endpoint,String query,int limit)throws Exception{
+        var options=new LinkedHashMap<>(endpoint.options());options.put("table","cdc_ex_discovery");Endpoint selected=new Endpoint(endpoint.type(),options);
+        List<String> result=new ArrayList<>();
+        try(MongoClient client=connect(selected)){
+            var filter=new BsonDocument("type",new BsonString("collection")).append("name",new BsonRegularExpression(java.util.regex.Pattern.quote(query)));
+            try(var cursor=client.getDatabase(selected.require("database")).listCollections(BsonDocument.class).filter(filter).maxTime(15,TimeUnit.SECONDS).iterator()){
+                while(cursor.hasNext()){
+                    var meta=cursor.next();String name=meta.getString("name").getValue();var settings=meta.getDocument("options",new BsonDocument());
+                    if(name.matches("[A-Za-z_][A-Za-z0-9_]{0,62}")&&!settings.getBoolean("capped",BsonBoolean.FALSE).getValue()&&!settings.containsKey("timeseries"))result.add(name);
+                    if(result.size()>=limit)break;
+                }
+            }
+        }
+        result.sort(String::compareTo);return result;
+    }
     static void names(Endpoint endpoint) {
         for(String key:List.of("database","table"))
             if(!endpoint.require(key).matches("[A-Za-z_][A-Za-z0-9_]{0,62}"))

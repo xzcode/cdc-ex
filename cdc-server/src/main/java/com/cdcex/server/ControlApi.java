@@ -12,6 +12,8 @@ public final class ControlApi {
     private final ControlRepository store;private final ConnectorRegistry registry;private final TaskManager tasks;
     public ControlApi(ControlRepository store,ConnectorRegistry registry,TaskManager tasks){this.store=store;this.registry=registry;this.tasks=tasks;}
     public record ConnectionInput(String id,String name,Endpoint endpoint){}
+    public record BatchCreateInput(List<TaskDefinition> tasks){}
+    public record BulkInput(List<String> ids,String action,String group){}
     public record ComparisonInput(boolean sourceQuiescent,int maxRows){}
     public record LimitsInput(long journalBytes,long journalEvents,int batchSize,int maxFailures){}
     @GetMapping("/health") public Map<String,String> health(){return Map.of("status","UP","product","CDC EX");}
@@ -35,12 +37,20 @@ public final class ControlApi {
     @PostMapping("/connections/{id}/test") public Object test(@PathVariable("id") String id,@RequestParam(name="role",defaultValue="SOURCE") ConnectorProvider.Role role)throws Exception{
         Endpoint endpoint=tasks.connection(id);var result=registry.get(endpoint.type()).inspect(endpoint,role);store.audit("TEST_CONNECTION",id,"OK");return result;
     }
+    @GetMapping("/connections/{id}/resources") public Object resources(@PathVariable("id") String id,
+            @RequestParam(name="query",defaultValue="") String query,@RequestParam(name="limit",defaultValue="500") int limit)throws Exception{
+        if(limit<1||limit>2000||query.length()>249)throw new IllegalArgumentException("Invalid discovery query");
+        Endpoint endpoint=tasks.connection(id);
+        List<String> resources=registry.get(endpoint.type()).resources(endpoint,query,limit+1);
+        return Map.of("resources",resources.stream().limit(limit).toList(),"truncated",resources.size()>limit);
+    }
     @GetMapping("/tasks") public Object tasks()throws Exception{return tasks.views();}
     @GetMapping("/tasks/{id}") public Object task(@PathVariable("id") String id)throws Exception{return tasks.view(store.get("task",id));}
     @PostMapping("/tasks") @ResponseStatus(HttpStatus.CREATED) public Object task(@RequestBody TaskDefinition definition)throws Exception{
-        definition.resolve(tasks.connection(definition.sourceConnectionId()),tasks.connection(definition.sinkConnectionId()));
-        store.create("task",definition.id(),definition.name(),CdcApplication.JSON.writeValueAsString(definition));return task(definition.id());
+        tasks.create(definition);return task(definition.id());
     }
+    @PostMapping("/tasks/batch") @ResponseStatus(HttpStatus.OK) public Object createBatch(@RequestBody BatchCreateInput input)throws Exception{return tasks.createBatch(input.tasks());}
+    @PostMapping("/tasks/bulk") public Object bulk(@RequestBody BulkInput input)throws Exception{return tasks.bulk(input.ids(),input.action(),input.group());}
     @PostMapping("/tasks/{id}/validate") public Object validate(@PathVariable("id") String id)throws Exception{return tasks.validate(id);}
     @PostMapping({"/tasks/{id}/start","/tasks/{id}/retry"}) @ResponseStatus(HttpStatus.ACCEPTED) public Object start(@PathVariable("id") String id)throws Exception{tasks.start(id);return Map.of("state","STARTING");}
     @PostMapping("/tasks/{id}/pause") @ResponseStatus(HttpStatus.ACCEPTED) public Object pause(@PathVariable("id") String id)throws Exception{tasks.stop(id,true);return Map.of("state","PAUSING");}

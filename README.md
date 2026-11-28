@@ -72,3 +72,5 @@ A project license has not yet been selected. Apache-2.0 was proposed during desi
 ### Optional management database
 
 CDC EX supports SQLite (default), MySQL or MongoDB for encrypted connection/task definitions, state, identities and audit records. Per-task journals and native checkpoints remain local in every mode. See [Control database configuration](docs/CONTROL_DATABASE.md). Switching an existing deployment requires the explicit offline migration command (post-rc.2). See the release page for the exact validated candidate.
+
+The development branch adds multi-resource batch creation, grouping, bulk lifecycle actions, and measured throughput/event-age monitoring. See [Batch tasks and telemetry](docs/BATCH_TASKS.md).

@@ -25,3 +25,5 @@ Post-M9 UI refinement: [UI polish handoff](HANDOFF_UI_POLISH.md). Included in th
 RC.2 management storage: selectable SQLite/MySQL/MongoDB control repositories and removal of the fixed four-active-task gate. See [CONTROL_DATABASE.md](CONTROL_DATABASE.md); the local CDC journal contract is unchanged.
 
 Post-rc.2: offline management repository migration between all three storage backends. Copy and durable verification precede the binding switch; source and per-task journals are retained. See [CONTROL_DATABASE.md](CONTROL_DATABASE.md).
+
+Post-rc.2 batch workspace: [BATCH_TASKS.md](BATCH_TASKS.md), independent resource-pair tasks, group selection/bulk operations and actual durable-counter telemetry. No change to the local journal generation fingerprint or delivery semantics.

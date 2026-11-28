@@ -12,6 +12,12 @@ public final class KafkaProvider implements ConnectorProvider {
             "rawMessages",false,"delivery","at-least-once","ordering","within each partition",
             "consumerGroup","one task owner, automatic rebalance","security",List.of("SSL","SASL_SSL","PLAINTEXT with explicit opt-in"));
     }
+    @Override public List<String> resources(Endpoint endpoint,String query,int limit)throws Exception{
+        var options=new LinkedHashMap<>(endpoint.options());options.put("topic","cdc-ex-discovery");var settings=new KafkaSettings(new Endpoint(endpoint.type(),options));
+        try(Admin admin=Admin.create(settings.commonProperties("discovery"))){
+            return admin.listTopics().names().get(15,java.util.concurrent.TimeUnit.SECONDS).stream().filter(name->name.contains(query)&&name.matches("[A-Za-z0-9._-]{1,249}")).sorted().limit(limit).toList();
+        }
+    }
     @Override public Inspection inspect(Endpoint endpoint,Role role) throws Exception {
         KafkaSettings settings=new KafkaSettings(endpoint);
         if(role==Role.SOURCE)settings.groupId();

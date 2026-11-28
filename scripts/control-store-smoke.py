@@ -116,6 +116,52 @@ try:
     wait(paused_all)
     assert request("/audit")
     for i in range(1,count+1):assert (state/"tasks"/f"task-{i}"/"journal.db").exists()
+    if e.get("CDC_TEST_TASK_BATCH")=="true":
+        assert kind=="SQLITE"
+        source_discovery=request("/connections/source-1/resources?query=batch_")
+        assert source_discovery=={"resources":["batch_a","batch_b"],"truncated":False}
+        assert request("/connections/target-1/resources?query=batch_&limit=1")=={"resources":["batch_a"],"truncated":True}
+        definitions=[{"id":"batch-"+str(i),"name":"Batch "+str(i),"group":"Orders",
+                      "sourceConnectionId":"source-1","sinkConnectionId":"target-1","snapshotMode":"initial",
+                      "sourceOverrides":{"table":name,"replicationServerId":str(56000+i)},
+                      "sinkOverrides":{"table":name}} for i,name in enumerate(["batch_a","batch_b"],1)]
+        # Whole structural validation before writes; no credential/host override or duplicated source IDs.
+        def rejected(body):
+            try:request("/tasks/batch","POST",{"tasks":body})
+            except urllib.error.HTTPError as exc:assert exc.code in (400,409)
+            else:raise AssertionError("Invalid batch accepted")
+        bad=json.loads(json.dumps(definitions));bad[1]["sourceOverrides"]["password"]="override-forbidden";rejected(bad)
+        bad=json.loads(json.dumps(definitions));bad[1]["sourceOverrides"]["replicationServerId"]=bad[0]["sourceOverrides"]["replicationServerId"];rejected(bad)
+        assert len(request("/tasks"))==1
+        created=request("/tasks/batch","POST",{"tasks":definitions})
+        assert [r["outcome"] for r in created]==["CREATED","CREATED"]
+        assert [r["outcome"] for r in request("/tasks/batch","POST",{"tasks":definitions})]==["UNCHANGED","UNCHANGED"]
+        ids=[d["id"] for d in definitions]
+        def bulk(action,group=None):
+            return request("/tasks/bulk","POST",{"ids":ids,"action":action,"group":group})
+        def batch_tasks():
+            return [request("/tasks/"+i) for i in ids]
+        assert all(r["outcome"]=="REQUESTED" for r in bulk("start"))
+        wait(lambda:all(sql("SELECT COUNT(*) FROM dst."+name)=="1" for name in ["batch_a","batch_b"]))
+        wait(lambda:all(t["state"]=="CAPTURING" for t in batch_tasks()))
+        # Let the first health samples initialize; then deliver real streaming changes.
+        wait(lambda:all(t["health"].get("capturedPerSecond") is not None for t in batch_tasks()))
+        sql("INSERT INTO src.batch_a VALUES(2,'stream-a'); INSERT INTO src.batch_b VALUES(2,'stream-b')")
+        wait(lambda:all(sql("SELECT COUNT(*) FROM dst."+name)=="2" for name in ["batch_a","batch_b"]))
+        wait(lambda:all(t["health"].get("lastDeliveryDelayMillis") is not None for t in batch_tasks()))
+        # Group updates while running do not change the resolved generation or offsets.
+        assert all(r["outcome"]=="UPDATED" for r in bulk("group","Billing"))
+        assert all(t["group"]=="Billing" and t["state"]=="CAPTURING" for t in batch_tasks())
+        assert all(r["outcome"]=="REQUESTED" for r in bulk("pause"))
+        wait(lambda:all(t["state"]=="PAUSED" for t in batch_tasks()))
+        stop();start()
+        assert all(t["group"]=="Billing" and t["health"]["journal"]["total"]>=2 for t in batch_tasks())
+        sql("INSERT INTO src.batch_a VALUES(3,'resume-a'); INSERT INTO src.batch_b VALUES(3,'resume-b')")
+        assert all(r["outcome"]=="REQUESTED" for r in bulk("start"))
+        wait(lambda:all(sql("SELECT COUNT(*) FROM dst."+name)=="3" for name in ["batch_a","batch_b"]))
+        assert all(r["outcome"]=="REQUESTED" for r in bulk("stop"))
+        wait(lambda:all(t["state"]=="STOPPED" for t in batch_tasks()))
+        print("Batch: real MySQL discovery, two independent tasks from shared connection templates, retry, group, bulk lifecycle, retained counters, live rates and event-age samples passed.")
     if e.get("CDC_TEST_CONTROL_MIGRATION")=="true":
         assert kind=="SQLITE" and count==1
         def local_hashes():

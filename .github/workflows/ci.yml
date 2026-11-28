@@ -117,12 +117,14 @@ jobs:
           - {name: MySQL management storage and five concurrent tasks, script: control-store, control: MYSQL}
           - {name: MongoDB management storage, script: control-store, control: MONGODB}
           - {name: Six offline management database migration directions, script: control-store, control: SQLITE, migration: true}
+          - {name: Multi-resource batch tasks and runtime telemetry, script: control-store, control: SQLITE, batch: true}
     env:
       JAVA_TOOL_OPTIONS: -Xmx256m -XX:MaxDirectMemorySize=64m
       CDC_TEST_SOURCE_TYPE: ${{ matrix.source }}
       CDC_TEST_TARGET_TYPE: ${{ matrix.target }}
       CDC_TEST_CONTROL_TYPE: ${{ matrix.control }}
       CDC_TEST_CONTROL_MIGRATION: ${{ matrix.migration && 'true' || 'false' }}
+      CDC_TEST_TASK_BATCH: ${{ matrix.batch && 'true' || 'false' }}
       CDC_CROSS_SUITE: ${{ matrix.suite }}
       CDC_TEST_KAFKA_BROKER_SUITE: ${{ matrix.script == 'kafka' && 'true' || 'false' }}
       CDC_TEST_SECURITY_DATABASE: ${{ matrix.script == 'security' && 'true' || 'false' }}

@@ -118,6 +118,19 @@ public final class SqliteJournal implements AutoCloseable {
         if(consumed>total) throw new IllegalStateException("Journal accounting inconsistency");
         return new Stats(total,total-consumed,bytes,ack);
     }
+    /** Read inactive persisted counters without opening a writer or changing task state. */
+    public static Stats readStats(Path path)throws Exception{
+        if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS))throw new IllegalArgumentException("Missing journal");
+        Class.forName("org.sqlite.JDBC");
+        org.sqlite.SQLiteConfig config=new org.sqlite.SQLiteConfig();config.setReadOnly(true);config.setBusyTimeout(2000);
+        try(Connection c=DriverManager.getConnection("jdbc:sqlite:"+path.toAbsolutePath(),config.toProperties());
+            Statement s=c.createStatement();ResultSet r=s.executeQuery("SELECT k,v FROM metadata WHERE k IN ('ack','event_count','consumed_count','event_bytes','receipt_bytes')")){
+            Map<String,Long> values=new HashMap<>();while(r.next())values.put(r.getString(1),Long.parseLong(r.getString(2)));
+            long total=values.get("event_count"),consumed=values.get("consumed_count");
+            if(total<0||consumed<0||consumed>total)throw new IllegalStateException("Invalid journal counters");
+            return new Stats(total,total-consumed,Math.addExact(values.get("event_bytes"),values.get("receipt_bytes")),values.get("ack"));
+        }
+    }
     /** Drop committed payloads while retaining durable identities for source replay. Never expires identities implicitly. */
     public synchronized void compact() throws SQLException {
         long ack=Long.parseLong(metadata("ack")),added=0;

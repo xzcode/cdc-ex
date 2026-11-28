@@ -19,6 +19,77 @@ public final class TaskManager implements AutoCloseable {
     TaskDefinition definition(String id)throws Exception{return CdcApplication.JSON.readValue(store.get("task",id).json(),TaskDefinition.class);}
     TaskSpec specification(String id)throws Exception{TaskDefinition d=definition(id);return d.resolve(connection(d.sourceConnectionId()),connection(d.sinkConnectionId()));}
     Path taskDirectory(String id){ControlStore.id(id);return directory.resolve("tasks").resolve(id);}
+    record BatchResult(String id,String outcome,String code){}
+    private static BatchResult failure(String id,Exception e){
+        return new BatchResult(id,"FAILED",e instanceof NoSuchElementException?"NOT_FOUND":e instanceof IllegalArgumentException?"INVALID_CONFIGURATION":e instanceof IllegalStateException?"CONFLICT":Failure.describe(e).code());
+    }
+    private TaskSpec checkDefinition(TaskDefinition d)throws Exception{
+        TaskSpec spec=d.resolve(connection(d.sourceConnectionId()),connection(d.sinkConnectionId()));
+        if(d.sourceConnectionId().equals(d.sinkConnectionId())&&spec.source().equals(spec.sink()))throw new IllegalArgumentException("Source and destination must differ");
+        var capabilities=registry.get(spec.source().type()).capabilities().get("sourceModes");
+        if(!(capabilities instanceof List<?> modes)||!modes.contains(spec.snapshotMode()))throw new IllegalArgumentException("Unsupported capture mode");
+        registry.get(spec.sink().type());
+        return spec;
+    }
+    public synchronized void create(TaskDefinition d)throws Exception{
+        checkDefinition(d);
+        if(Files.exists(taskDirectory(d.id()),LinkOption.NOFOLLOW_LINKS))throw new IllegalStateException("Task recovery directory already exists");
+        store.create("task",d.id(),d.name(),CdcApplication.JSON.writeValueAsString(d));
+    }
+    /** Precheck the complete request before any writes. Each durable create is reported separately.
+     * Exact retries are safe; a different definition under an existing ID is rejected.
+     */
+    public synchronized List<BatchResult> createBatch(List<TaskDefinition> definitions)throws Exception{
+        if(definitions==null||definitions.isEmpty())throw new IllegalArgumentException("Choose tasks to create");
+        Set<String> ids=new HashSet<>(),destinations=new HashSet<>(),clients=new HashSet<>();
+        Map<String,TaskDefinition> existing=new HashMap<>();
+        for(var row:store.list("task"))existing.put(row.id(),CdcApplication.JSON.readValue(row.json(),TaskDefinition.class));
+        for(var d:definitions){
+            if(d==null||!ids.add(d.id()))throw new IllegalArgumentException("Duplicate task identifier in batch");
+            TaskSpec spec=checkDefinition(d);
+            if(existing.containsKey(d.id())&&!existing.get(d.id()).equals(d))throw new IllegalStateException("Task ID already belongs to another definition");
+            if(!existing.containsKey(d.id())&&Files.exists(taskDirectory(d.id()),LinkOption.NOFOLLOW_LINKS))throw new IllegalStateException("Task recovery directory already exists");
+            String dest=d.sinkConnectionId()+":"+TaskDefinition.resource(spec.sink());
+            if(!destinations.add(dest))throw new IllegalArgumentException("Repeated destination in batch");
+            Endpoint src=spec.source();String ownerKey=switch(src.type()){
+                case "MYSQL","MARIADB"->src.require("replicationServerId");
+                case "POSTGRESQL"->src.require("slot");
+                case "KAFKA"->src.require("groupId");
+                default->"";
+            };
+            if(!ownerKey.isEmpty()&&!clients.add(d.sourceConnectionId()+":"+ownerKey))throw new IllegalArgumentException("Repeated source replication identity in batch");
+        }
+        List<BatchResult> result=new ArrayList<>();
+        for(var d:definitions){
+            if(existing.containsKey(d.id())){result.add(new BatchResult(d.id(),"UNCHANGED",null));continue;}
+            try{store.create("task",d.id(),d.name(),CdcApplication.JSON.writeValueAsString(d));result.add(new BatchResult(d.id(),"CREATED",null));}
+            catch(Exception e){result.add(failure(d.id(),e));}
+        }
+        return result;
+    }
+    public synchronized List<BatchResult> bulk(List<String> ids,String action,String group)throws Exception{
+        if(ids==null||ids.isEmpty()||!Set.of("start","pause","stop","group").contains(action))throw new IllegalArgumentException("Invalid bulk action");
+        if(action.equals("group"))group=TaskDefinition.normalizeGroup(group);
+        Set<String> unique=new LinkedHashSet<>(ids);unique.forEach(ControlStore::id);
+        List<BatchResult> result=new ArrayList<>();
+        for(String id:unique){
+            try{
+                TaskDefinition d=definition(id);
+                if(action.equals("group")){
+                    if(d.group().equals(group)){result.add(new BatchResult(id,"UNCHANGED",null));continue;}
+                    var next=d.withGroup(group);store.replace("task",id,next.name(),CdcApplication.JSON.writeValueAsString(next));
+                    store.audit("GROUP_TASK",id,"OK");
+                }else if(action.equals("start")){
+                    if(active.containsKey(id)){result.add(new BatchResult(id,"UNCHANGED",null));continue;}start(id);
+                }else{
+                    // Do not clear retained errors or convert an inactive task into a paused one.
+                    if(!active.containsKey(id)){result.add(new BatchResult(id,"UNCHANGED",null));continue;}stop(id,action.equals("pause"));
+                }
+                result.add(new BatchResult(id,action.equals("group")?"UPDATED":"REQUESTED",null));
+            }catch(Exception e){result.add(failure(id,e));}
+        }
+        return result;
+    }
     public synchronized void connectionIdle(String id)throws Exception{
         for(String task:active.keySet()){TaskDefinition d=definition(task);if(id.equals(d.sourceConnectionId())||id.equals(d.sinkConnectionId()))throw new IllegalStateException("Pause tasks before editing their connection");}
     }
@@ -52,7 +123,7 @@ public final class TaskManager implements AutoCloseable {
     }
     public synchronized void start(String id)throws Exception{
         if(closing.get()||active.containsKey(id))throw new IllegalStateException("Task is already running or server is stopping");
-        Worker worker=new Worker(id,specification(id));active.put(id,worker);
+        Worker worker=new Worker(id,specification(id));completed.remove(id);active.put(id,worker);
         try{store.state(id,"STARTING",null);store.audit("START_TASK",id,"REQUESTED");executor.submit(worker);}
         catch(Exception e){active.remove(id,worker);try{store.state(id,"STOPPED","START_REQUEST_FAILED");}catch(Exception ignored){}throw e;}
     }
@@ -62,23 +133,39 @@ public final class TaskManager implements AutoCloseable {
         worker.pause=pause;worker.stopping.set(true);if(worker.runner!=null)worker.runner.runtime().requestStop();
         store.state(id,pause?"PAUSING":"STOPPING",null);store.audit(pause?"PAUSE_TASK":"STOP_TASK",id,"REQUESTED");
     }
-    public Map<String,Object> view(ControlStore.Record record)throws Exception{
+    public Map<String,Object> view(ControlStore.Record record)throws Exception{return view(record,null);}
+    private Map<String,Object> view(ControlStore.Record record,Map<String,Endpoint> endpoints)throws Exception{
         TaskDefinition d=CdcApplication.JSON.readValue(record.json(),TaskDefinition.class);
         Map<String,Object> view=new LinkedHashMap<>();view.put("id",d.id());view.put("name",d.name());view.put("sourceConnectionId",d.sourceConnectionId());view.put("sinkConnectionId",d.sinkConnectionId());view.put("snapshotMode",d.snapshotMode());view.put("mapping",d.mapping());
         view.put("state",record.state());view.put("error",record.error());view.put("updated",record.updated());
-        TaskSpec settings=d.resolve(connection(d.sourceConnectionId()),connection(d.sinkConnectionId()));
+        TaskSpec settings=d.resolve(endpoints==null?connection(d.sourceConnectionId()):Objects.requireNonNull(endpoints.get(d.sourceConnectionId())),endpoints==null?connection(d.sinkConnectionId()):Objects.requireNonNull(endpoints.get(d.sinkConnectionId())));
+        view.put("group",d.group());view.put("sourceResource",TaskDefinition.resource(settings.source()));view.put("sinkResource",TaskDefinition.resource(settings.sink()));
+        view.put("sourceOverrides",d.sourceOverrides());view.put("sinkOverrides",d.sinkOverrides());
         view.put("limits",Map.of("journalBytes",settings.journalBytes(),"journalEvents",settings.journalEvents(),"batchSize",settings.batchSize(),"maxFailures",settings.maxFailures()));
         Worker worker=active.get(d.id());TaskRuntime.Health health=completed.get(d.id());
         if(worker!=null&&worker.runner!=null){try{health=worker.runner.runtime().health();if(!worker.stopping.get())view.put("state",health.state());}catch(Exception ignored){}}
+        if(worker==null&&health==null){
+            Path journal=taskDirectory(d.id()).resolve("journal.db");
+            if(Files.isRegularFile(journal,LinkOption.NOFOLLOW_LINKS)){
+                try{
+                    health=TaskRuntime.Health.retained(SqliteJournal.readStats(journal));
+                    if(!active.containsKey(d.id()))completed.putIfAbsent(d.id(),health);
+                }catch(Exception ignored){} // An unavailable journal is unknown, not zero.
+            }
+        }
         view.put("health",health);return view;
     }
-    public List<Map<String,Object>> views()throws Exception{List<Map<String,Object>> result=new ArrayList<>();for(var r:store.list("task"))result.add(view(r));return result;}
+    public List<Map<String,Object>> views()throws Exception{
+        Map<String,Endpoint> endpoints=new HashMap<>();
+        for(var c:store.list("connection"))endpoints.put(c.id(),CdcApplication.JSON.readValue(c.json(),Endpoint.class));
+        List<Map<String,Object>> result=new ArrayList<>();for(var r:store.list("task"))result.add(view(r,endpoints));return result;
+    }
     public synchronized void limits(String id,long bytes,long events,int batch,int failures)throws Exception{
         if(active.containsKey(id))throw new IllegalStateException("Pause the task before changing resource limits");
         TaskDefinition old=definition(id);TaskSpec current=specification(id);
-        var next=new TaskDefinition(id,old.name(),old.sourceConnectionId(),old.sinkConnectionId(),old.snapshotMode(),old.mapping(),
+        var next=old.withLimits(
             bytes==0?current.journalBytes():bytes,events==0?current.journalEvents():events,batch==0?current.batchSize():batch,failures==0?current.maxFailures():failures);
-        TaskSpec validated=next.resolve(current.source(),current.sink());Path journal=taskDirectory(id).resolve("journal.db");
+        TaskSpec validated=next.resolve(connection(next.sourceConnectionId()),connection(next.sinkConnectionId()));Path journal=taskDirectory(id).resolve("journal.db");
         if(Files.exists(journal))try(var j=new SqliteJournal(journal,current.journalBytes(),current.journalEvents())){
             var stats=j.stats();if(validated.journalBytes()<stats.bytes()||validated.journalEvents()<stats.total())throw new IllegalArgumentException("New limits are below retained journal usage");
         }

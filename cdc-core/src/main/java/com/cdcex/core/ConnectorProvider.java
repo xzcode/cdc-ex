@@ -26,6 +26,10 @@ public interface ConnectorProvider {
     SourceConnector openSource(Endpoint endpoint, SourceContext context) throws Exception;
     /** Receives events after mapping, addressed to this endpoint's namespace and keys. */
     SinkConnector openSink(Endpoint endpoint, SinkContext context) throws Exception;
+    /** Read-only namespace discovery. Results are candidates, not preflight approval. */
+    default List<String> resources(Endpoint endpoint,String query,int limit)throws Exception{
+        throw new UnsupportedOperationException("Resource discovery is not supported by this connector");
+    }
     /** Bounded validation scan. Return at most limit rows; callers ask for limit+1 to detect truncation. */
     default List<Map<String,Object>> readRows(Endpoint endpoint, int limit) throws Exception {
         throw new UnsupportedOperationException("Comparison is not supported by this connector");

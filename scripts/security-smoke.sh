@@ -193,7 +193,7 @@ PY
   assert_redacted "$work/response.json"
   echo "Authenticated API MySQL snapshot/update/pause/resume passed: $(sql 'SELECT VERSION()')"
   if [[ "${CDC_TEST_UI:-false}" == true ]]; then
-    sql 'CREATE DATABASE ui_src; CREATE DATABASE ui_dst; CREATE DATABASE ui_dst2; CREATE TABLE ui_src.items(id BIGINT PRIMARY KEY,name VARCHAR(40),amount DECIMAL(18,2)) ENGINE=InnoDB; CREATE TABLE ui_dst.items LIKE ui_src.items; CREATE TABLE ui_dst2.items LIKE ui_src.items; INSERT INTO ui_src.items VALUES(1,"ui-snapshot",12.30);'
+    sql 'CREATE DATABASE ui_src; CREATE DATABASE ui_dst; CREATE DATABASE ui_dst2; CREATE TABLE ui_src.items(id BIGINT PRIMARY KEY,name VARCHAR(40),amount DECIMAL(18,2)) ENGINE=InnoDB; CREATE TABLE ui_dst.items LIKE ui_src.items; CREATE TABLE ui_dst2.items LIKE ui_src.items; INSERT INTO ui_src.items VALUES(1,"ui-snapshot",12.30); CREATE TABLE ui_src.batch_a LIKE ui_src.items; CREATE TABLE ui_src.batch_b LIKE ui_src.items; CREATE TABLE ui_dst.batch_a LIKE ui_src.items; CREATE TABLE ui_dst.batch_b LIKE ui_src.items; INSERT INTO ui_src.batch_a VALUES(1,"batch-a",1.00); INSERT INTO ui_src.batch_b VALUES(1,"batch-b",2.00);'
     CDC_UI_BASE_URL="$base" CDC_UI_TOKEN="$token" CDC_UI_DB_PORT="$db_port" CDC_UI_DB_USER=root CDC_UI_DB_PASSWORD="$secret" \
       CDC_UI_SOURCE_DATABASE=ui_src CDC_UI_TARGET_DATABASE=ui_dst CDC_UI_SECOND_TARGET_DATABASE=ui_dst2 CDC_UI_TABLE=items node scripts/ui-smoke.mjs
   fi

@@ -21,7 +21,7 @@ Comparisons require an inactive task, an empty pending queue and the caller's as
 
 ## Deliberate boundaries
 
-- One table, collection or topic per task; no fixed active managed task-count limit; actual concurrency depends on resources and connector ownership. A task directory and the management store have one process owner. No distributed lease, HA scheduler or active-active failover.
+- One table, collection or topic per task (batch creation creates independent tasks); no fixed active managed task-count limit; actual concurrency depends on resources and connector ownership. A task directory and the management store have one process owner. No distributed lease, HA scheduler or active-active failover.
 - One-way tasks. Resource identity checks reject self-targeting, known managed graph cycles and concurrent destination ownership. They cannot infer an unregistered external replication topology.
 - At-least-once delivery. Source and sink checkpoints are independent. Source transactions can span delivery batches; heterogeneous sinks are not committed atomically with source offsets.
 - Stable explicit keys are required for replicated state. Arbitrary scripts, keyless state replication and filters on mutable values are rejected rather than guessed.

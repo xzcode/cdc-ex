@@ -74,3 +74,5 @@ Comparison requires an inactive task, no pending journal events and an operator 
 当前架构为单节点 JVM、SQLite 持久日志和可选管理界面。MySQL、MariaDB、PostgreSQL 使用 Debezium，MongoDB 使用原生 Change Streams；ClickHouse 仅提供明确受限的源模式，Kafka 不是直连同步的必选依赖。
 
 完整批次先进入持久日志，再推进源位点；目标提交后才推进投递水位。已投递载荷会压缩为永久去重凭据。任务映射、资源身份与结构被固定，故障后按原状态重放；目标已提交但本地未确认的窗口仍可能重复，所以不是跨系统恰好一次。位点损坏、历史过期或资源变化不会触发静默重置。
+
+The management task model supports optional group labels and restricted per-resource selectors on saved connection templates. Batch-created tasks remain separate generations and retain existing journal/identity fences. See [BATCH_TASKS.md](BATCH_TASKS.md).
