@@ -10,7 +10,7 @@ const metrics=computed(()=>{
 })
 watch(()=>props.tasks,()=>{const m=metrics.value,at=props.now;if(m.captured!=null&&m.delivered!=null)history.value=[...history.value.filter(p=>at-p.at<=600000&&at-p.at>=1000),{at,captured:m.captured,delivered:m.delivered,complete:m.sampled===m.active}];else if(!m.active)history.value=[]},{immediate:true})
 const max=computed(()=>Math.max(1,...history.value.flatMap(p=>[p.captured,p.delivered])))
-function path(key:'captured'|'delivered'){const last=history.value.at(-1)?.at||0;return history.value.map((p,i)=>(i===0||!p.complete||!history.value[i-1]!.complete?'M':'L')+(40+Math.max(0,1-(last-p.at)/600000)*550).toFixed(1)+' '+(110-p[key]/max.value*94).toFixed(1)).join(' ')}
+function path(key:'captured'|'delivered'){const last=history.value.at(-1)?.at||0;return history.value.map((p,i)=>(i===0||!p.complete||!history.value[i-1]!.complete||p.at-history.value[i-1]!.at>25000?'M':'L')+(40+Math.max(0,1-(last-p.at)/600000)*550).toFixed(1)+' '+(110-p[key]/max.value*94).toFixed(1)).join(' ')}
 </script>
 <template><section class="panel live-monitor"><div class="panel-header"><h2><Icon name="bolt" :size="17"/>{{ t('monitor') }}</h2><span class="subtle-label">{{ t('rateCoverage',{n:metrics.sampled,total:metrics.active}) }}</span></div>
 <div class="monitor-values"><div><span>{{ t('captureRate') }}</span><strong>{{ rate(metrics.captured) }}</strong></div><div><span>{{ t('deliveryRate') }}</span><strong>{{ rate(metrics.delivered) }}</strong></div><div :title="t('delayHint')"><span>{{ t('deliveryDelay') }}</span><strong>{{ duration(metrics.delay) }}</strong><small>{{ t('delayCoverage',{n:metrics.delayed}) }}</small></div></div>

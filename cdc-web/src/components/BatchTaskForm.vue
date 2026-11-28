@@ -50,9 +50,9 @@ async function create(){await run(async()=>{
       <div class="form-grid">
         <label class="field"><span>{{ t('taskGroup') }}</span><input v-model="draft.group" maxlength="80"/></label>
         <label class="field"><span>{{ t('idPrefix') }}</span><input v-model="draft.prefix" maxlength="48" spellcheck="false"/></label>
-        <label class="field"><span>{{ t('source') }}</span><select v-model="draft.source"><option value="">{{ t('selectConnection') }}</option><option v-for="c in connections" :key="c.id" :value="c.id">{{ c.name }} · {{ connectorName(c.type) }}</option></select></label>
-        <label class="field"><span>{{ t('destination') }}</span><select v-model="draft.sink"><option value="">{{ t('selectConnection') }}</option><option v-for="c in connections" :key="c.id" :value="c.id">{{ c.name }} · {{ connectorName(c.type) }}</option></select></label>
-        <label class="field"><span>{{ t('snapshotMode') }}</span><select v-model="draft.mode"><option v-for="mode in modes" :key="mode" :value="mode">{{ modeLabel(mode,src?.type) }}</option></select></label>
+        <label class="field"><span>{{ t('source') }}</span><select v-model="draft.source" :aria-label="t('source')"><option value="">{{ t('selectConnection') }}</option><option v-for="c in connections" :key="c.id" :value="c.id">{{ c.name }} · {{ connectorName(c.type) }}</option></select></label>
+        <label class="field"><span>{{ t('destination') }}</span><select v-model="draft.sink" :aria-label="t('destination')"><option value="">{{ t('selectConnection') }}</option><option v-for="c in connections" :key="c.id" :value="c.id">{{ c.name }} · {{ connectorName(c.type) }}</option></select></label>
+        <label class="field"><span>{{ t('snapshotMode') }}</span><select v-model="draft.mode" :aria-label="t('snapshotMode')"><option v-for="mode in modes" :key="mode" :value="mode">{{ modeLabel(mode,src?.type) }}</option></select></label>
         <label v-if="clientKey==='replicationServerId'" class="field"><span>{{ t('replicationServerId') }}</span><div class="inline-field"><input v-model="draft.firstId" inputmode="numeric" placeholder="55000" :aria-label="t('replicationServerId')"/><button class="button secondary small" @click="fillIds">{{ t('fillIds') }}</button></div></label>
       </div>
       <p v-if="clientKey" class="field-hint">{{ t('batchIdentityHint') }}</p>
